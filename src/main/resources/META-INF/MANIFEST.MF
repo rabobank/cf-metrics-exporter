@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Premain-Class: io.github.rabobank.cme.CfMetricsAgent
+Agent-Class: io.github.rabobank.cme.CfMetricsAgent
+Main-Class: io.github.rabobank.cme.CfMetricsAgent
