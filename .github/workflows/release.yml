@@ -1,0 +1,40 @@
+---
+name: Release
+run-name: Build ${{ github.ref_name }} by @${{ github.actor }}
+
+on:
+  release:
+    types: [ created ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Maven build
+        run: ./mvnw -Drevision=${{ github.event.release.tag_name }} clean package
+
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: "target/cf-metrics-exporter-${{ github.event.release.tag_name }}.jar"
+          bodyFile: CHANGELOG.md
+          allowUpdates: true
+          makeLatest: true
