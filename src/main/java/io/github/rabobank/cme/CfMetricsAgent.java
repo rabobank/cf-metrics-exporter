@@ -68,7 +68,12 @@ public class CfMetricsAgent {
         ApplicationInfo applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);
         AutoScalerInfo autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
 
-        log.info("Start CfMetricsExporter with arguments: %s", args);
+        if (!autoScalerInfo.isBasicAuthConfigured()) {
+            log.error("Basic authentication is not configured for the auto-scaler, agent cannot continue.");
+            return;
+        }
+
+        log.info("Start CfMetricsAgent with arguments: %s", args);
         
         // Create a single thread scheduler that runs every 10 seconds
         ScheduledExecutorService scheduler =

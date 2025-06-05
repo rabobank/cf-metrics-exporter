@@ -15,18 +15,26 @@
  */
 package io.github.rabobank.cme.domain;
 
+import io.github.rabobank.cme.Logger;
+
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AutoScalerInfo {
-    private final String password;
-    private final String url;
-    private final String username;
 
-    public AutoScalerInfo(String url, String username, String password) {
+    private static final Logger log = Logger.getLogger(AutoScalerInfo.class);
+
+    private final String password;
+    private final String username;
+    private final String url;
+    private final String urlMtls;
+
+    public AutoScalerInfo(String url, String username, String password, String urlMtls) {
         this.url = url;
         this.username = username;
         this.password = password;
+        this.urlMtls = urlMtls;
     }
 
     public String getPassword() {
@@ -37,38 +45,56 @@ public class AutoScalerInfo {
         return url;
     }
 
+    public String getUrlMtls() {
+        return urlMtls;
+    }
+
     public String getUsername() {
         return username;
     }
 
     public static AutoScalerInfo extractMetricsServerInfo(String vcapServicesJson) {
-        String url = findUrl(vcapServicesJson);
-        String username = findUsername(vcapServicesJson);
-        String password = findPassword(vcapServicesJson);
+        String url = findUrl(vcapServicesJson).orElse(null);
+        String urlMtls = findUrlMtls(vcapServicesJson).orElse(null);
+        String username = findUsername(vcapServicesJson).orElse(null);
+        String password = findPassword(vcapServicesJson).orElse(null);
         
-        return new AutoScalerInfo(url, username, password);
+        return new AutoScalerInfo(url, username, password, urlMtls);
     }
 
-    private static String findCustomMetricValue(String vcapServices, String key) {
+    private static Optional<String> findCustomMetricValue(String vcapServices, String key) {
         Pattern pattern = Pattern.compile("\"custom_metrics\"\\s*:\\s*\\{[^}]*\"" + key + "\"\\s*:\\s*\"([^\"]+)\"");
         Matcher matcher = pattern.matcher(vcapServices);
         if (matcher.find()) {
-            return matcher.group(1);
+            return Optional.of(matcher.group(1));
         } else {
-            throw new IllegalStateException("'" + key + "' not found in 'custom_metrics' within VCAP_SERVICES");
+            log.debug("'" + key + "' not found in 'custom_metrics' within VCAP_SERVICES");
         }
+        return Optional.empty();
     }
 
-    private static String findPassword(String vcapServices) {
+    private static Optional<String> findPassword(String vcapServices) {
         return findCustomMetricValue(vcapServices, "password");
     }
 
-    private static String findUsername(String vcapServices) {
+    private static Optional<String> findUsername(String vcapServices) {
         return findCustomMetricValue(vcapServices, "username");
     }
 
-    private static String findUrl(String vcapServices) {
+    private static Optional<String> findUrl(String vcapServices) {
         return findCustomMetricValue(vcapServices, "url");
+    }
+
+    private static Optional<String> findUrlMtls(String vcapServices) {
+        return findCustomMetricValue(vcapServices, "url-mtls");
+    }
+
+    public boolean isBasicAuthConfigured () {
+        return (url != null && username != null && password != null);
+    }
+
+    public boolean isMtlsAuthConfigured () {
+        return urlMtls != null;
     }
 
     @Override
