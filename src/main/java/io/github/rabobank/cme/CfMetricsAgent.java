@@ -21,17 +21,14 @@ import io.github.rabobank.cme.domain.MtlsInfo;
 import io.github.rabobank.cme.rps.*;
 
 import java.lang.instrument.Instrumentation;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.stream.Collectors;
 
 import static io.github.rabobank.cme.domain.ApplicationInfo.extractApplicationInfo;
 import static io.github.rabobank.cme.domain.AutoScalerInfo.extractMetricsServerInfo;
+import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 
 public class CfMetricsAgent {
 
@@ -41,9 +38,7 @@ public class CfMetricsAgent {
 
         Arguments arguments = Arguments.parseArgs(args);
 
-        if (arguments.isDebug()) {
-            Logger.enableDebug();
-        }
+        enableLogging(arguments);
 
         try {
             CfMetricsAgent cfMetricsExporter = new CfMetricsAgent();
@@ -61,11 +56,19 @@ public class CfMetricsAgent {
         }
     }
 
-    public void start(Arguments args) {
-
-        if (args.isDebug()) {
+    private static void enableLogging(Arguments arguments) {
+        if (arguments.isDebug()) {
             Logger.enableDebug();
         }
+
+        if (arguments.isTrace()) {
+            Logger.enableTrace();
+        }
+    }
+
+    public void start(Arguments args) {
+
+        enableLogging(args);
 
         String vcapApplicationJson = System.getenv("VCAP_APPLICATION");
         String vcapServicesJson = System.getenv("VCAP_SERVICES");
@@ -79,31 +82,15 @@ public class CfMetricsAgent {
         ApplicationInfo applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);
         AutoScalerInfo autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
 
-
         if (!(autoScalerInfo.isBasicAuthConfigured() || autoScalerInfo.isMtlsAuthConfigured())) {
-            log.error("Missing auto-scaler connection information, CfMetricsAgent cannot start.");
+            log.error("Missing auto-scaler connection information for basic-auth and mtls, CfMetricsAgent cannot start.");
             return;
         }
 
-        String cfInstanceCert = System.getenv("CF_INSTANCE_CERT");
-        String cfInstanceKey = System.getenv("CF_INSTANCE_KEY");
-        String cfSystemCertPath = System.getenv("CF_SYSTEM_CERT_PATH");
+        // can return invalid mtlsInfo when not all info is available
+        MtlsInfo mtlsInfo = autoScalerInfo.isBasicAuthConfigured() ? INVALID_MTLS_INFO : initializeMtlsInfo();
 
-        if (cfSystemCertPath == null) {
-            log.error("CF_SYSTEM_CERT_PATH is not available in env variables.");
-            return;
-        }
-
-        List<Path> crtFiles = listAllCrtFiles(cfSystemCertPath);
-
-        if (crtFiles.isEmpty()) {
-            log.error("No CA certificates (*.crt files) found in %s, CfMetricsAgent cannot start.", cfSystemCertPath);
-            return;
-        }
-
-        MtlsInfo mtlsInfo = MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
-
-        if (!autoScalerInfo.isBasicAuthConfigured() && !mtlsInfo.isValid()) {
+        if (!autoScalerInfo.isBasicAuthConfigured() && (mtlsInfo == null || !mtlsInfo.isValid())) {
             log.error("Autoscaler basic auth not available and mTLS settings are incomplete, CfMetricsAgent cannot start.");
             return;
         }
@@ -145,28 +132,34 @@ public class CfMetricsAgent {
 
     }
 
-    private List<Path> listAllCrtFiles(String certPath) {
-        if (certPath == null) {
-            log.error("cert path is not available, no ca files found");
-            return Collections.emptyList();
-        }
-        Path directory = Path.of(certPath);
-        if (!Files.exists(directory)) {
-            log.error("Certificate directory does not exist: %s", certPath);
-            return Collections.emptyList();
-        }
-        if (!Files.isDirectory(directory)) {
-            log.error("Certificate path is not a directory: %s", certPath);
-            return Collections.emptyList();
+    private static MtlsInfo initializeMtlsInfo() {
+        String cfInstanceCert = System.getenv("CF_INSTANCE_CERT");
+        String cfInstanceKey = System.getenv("CF_INSTANCE_KEY");
+        String cfSystemCertPath = System.getenv("CF_SYSTEM_CERT_PATH");
+
+        if (cfSystemCertPath == null) {
+            log.error("CF_SYSTEM_CERT_PATH is not available in env variables.");
+            return INVALID_MTLS_INFO;
         }
 
-        try (var paths = Files.list(directory)) {
-            return paths.filter(path -> path.toString().endsWith(".crt"))
-                    .collect(Collectors.toUnmodifiableList());
-        } catch (IOException e) {
-            log.error("Cannot list certificate files in directory: %s", e.getMessage());
-            return Collections.emptyList();
+        if (cfInstanceCert == null) {
+            log.error("CF_INSTANCE_CERT is not available in env variables.");
+            return INVALID_MTLS_INFO;
         }
+
+        if (cfInstanceKey == null) {
+            log.error("CF_INSTANCE_KEY is not available in env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        List<Path> crtFiles = CertAndKeyProcessing.listAllCrtFiles(cfSystemCertPath);
+
+        if (crtFiles.isEmpty()) {
+            log.error("No CA certificates (*.crt files) found in %s, CfMetricsAgent cannot start.", cfSystemCertPath);
+            return INVALID_MTLS_INFO;
+        }
+
+        return MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
     }
 
     public static void premain(String args, Instrumentation instrumentation){
@@ -197,7 +190,4 @@ public class CfMetricsAgent {
         log.info("agentmain: calling premain");
         premain(args, instrumentation);
     }
-
-
-
 }

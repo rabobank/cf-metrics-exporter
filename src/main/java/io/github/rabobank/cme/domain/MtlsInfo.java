@@ -27,6 +27,8 @@ public class MtlsInfo {
 
     private static final Logger log = Logger.getLogger(MtlsInfo.class);
 
+    public static final MtlsInfo INVALID_MTLS_INFO = new MtlsInfo(null, null, null);
+
     private final String ca;
     private final String cert;
     private final String key;

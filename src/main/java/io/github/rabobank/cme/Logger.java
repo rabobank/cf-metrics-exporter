@@ -35,9 +35,11 @@ public class Logger {
 
     public static void enableDebug() {
         isDebugEnabled.set(true);
+        isTraceEnabled.set(false);
     }
     public static void enableTrace() {
         isTraceEnabled.set(true);
+        isDebugEnabled.set(true);
     }
 
     public void debug(String message) {
