@@ -65,9 +65,32 @@ public class Logger {
         System.out.println(prefix + " " + className + ": " + message);
     }
 
+    private void println(String prefix, String message, Throwable throwable, Object... args) {
+        StringBuilder messageWithThrowable = new StringBuilder(message + " Error: " + throwable);
+        Throwable cause = throwable.getCause();
+        while (cause != null) {
+            messageWithThrowable.append(" Caused by: ").append(cause);
+            cause = cause.getCause();
+        }
+        if (args.length > 0) {
+            message = String.format(messageWithThrowable.toString(), args);
+        } else {
+            message = messageWithThrowable.toString();
+        }
+        System.out.println(prefix + " " + className + ": " + message);
+        if (isDebugEnabled()) {
+            throwable.printStackTrace(System.out);
+        }
+    }
+
     public void error(String message, Object... args) {
         println("[ERROR]", message, args);
     }
+
+    public void error(String message, Throwable throwable, Object... args) {
+        println("[ERROR]", message, throwable, args);
+    }
+
     public void trace(String message, Object... args) {
         if (isTraceEnabled.get()) {
             println("[TRACE]", message, args);

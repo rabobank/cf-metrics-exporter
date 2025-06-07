@@ -65,6 +65,8 @@ The following settings are available:
 - `intervalSeconds`: Interval in seconds for sending metrics. Default is 10 seconds. Note: the average RPS is calculated for every interval.
 - `metricsEndpoint`: The endpoint to send metrics to. Not used currently, will pick it up from VCAP_SERVICES.
 
+Run with debug enabled to see stacktraces of exceptions.
+
 ## Env variables
 
 The following environment variables are used from within the cloud foundry container:
@@ -75,6 +77,8 @@ The following environment variables are used from within the cloud foundry conta
 The VCAP_SERVICES should contain the custom metrics endpoint and basic auth credentials. mTLS is not supported.
 
 There is a `src/test/resources/test.env` file that can be used to set these variables for local testing.
+The `src/test/resources/test-missing-basic-auth.env` can be used to test with mTLS instead of basic auth.
+
 Use via `source src/test/resources/test.env` in your terminal or add as env file in the IDE runner.
 
 ## Build
@@ -86,6 +90,24 @@ To build the project, use the following command:
 ```
 
 The agent jar will be created in the `target` directory: `target/cf-metrics-exporter-LOCAL-SNAPSHOT.jar`
+
+## Test metrics endpoint
+
+A Wiremock server is included to test the agent. It can be used with basic-auth (port 58080) and mTLS (port 58443).
+
+The certificates for mTLS are generated with the `mtls-certs/mtls-certificate-setup.sh` script.
+This script is executed in the compile step of the Maven build.
+The certs are in `target/generated-certs`.
+
+Beware: the client private key is not exactly the same as the ones used in cloud foundry,
+so parse errors were present when reading the private key on cloud foundry. The bouncy castles
+library is currently included for the correct parsing of the client private key. This was 
+the error without bouncy castles:
+
+```
+Failed to load private client key Caused by: java.security.spec.InvalidKeySpecException: java.security.InvalidKeyException: IOException : algid parse error, not a sequence Caused by: java.security.InvalidKeyException: IOException : algid parse error, not a sequence
+```
+
 
 # Notes
 

@@ -30,7 +30,7 @@ public class AutoScalerInfo {
     private final String url;
     private final String urlMtls;
 
-    public AutoScalerInfo(String url, String username, String password, String urlMtls) {
+    private AutoScalerInfo(String url, String username, String password, String urlMtls) {
         this.url = url;
         this.username = username;
         this.password = password;
@@ -54,10 +54,10 @@ public class AutoScalerInfo {
     }
 
     public static AutoScalerInfo extractMetricsServerInfo(String vcapServicesJson) {
-        String url = findUrl(vcapServicesJson).orElse(null);
-        String urlMtls = findUrlMtls(vcapServicesJson).orElse(null);
-        String username = findUsername(vcapServicesJson).orElse(null);
-        String password = findPassword(vcapServicesJson).orElse(null);
+        String url = findCustomMetricValue(vcapServicesJson, "url").orElse(null);
+        String urlMtls = findCustomMetricValue(vcapServicesJson, "mtls_url").orElse(null);
+        String username = findCustomMetricValue(vcapServicesJson, "username").orElse(null);
+        String password = findCustomMetricValue(vcapServicesJson, "password").orElse(null);
         
         return new AutoScalerInfo(url, username, password, urlMtls);
     }
@@ -71,22 +71,6 @@ public class AutoScalerInfo {
             log.debug("'" + key + "' not found in 'custom_metrics' within VCAP_SERVICES");
         }
         return Optional.empty();
-    }
-
-    private static Optional<String> findPassword(String vcapServices) {
-        return findCustomMetricValue(vcapServices, "password");
-    }
-
-    private static Optional<String> findUsername(String vcapServices) {
-        return findCustomMetricValue(vcapServices, "username");
-    }
-
-    private static Optional<String> findUrl(String vcapServices) {
-        return findCustomMetricValue(vcapServices, "url");
-    }
-
-    private static Optional<String> findUrlMtls(String vcapServices) {
-        return findCustomMetricValue(vcapServices, "url-mtls");
     }
 
     public boolean isBasicAuthConfigured () {
