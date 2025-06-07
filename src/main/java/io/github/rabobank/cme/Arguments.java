@@ -25,12 +25,13 @@ public class Arguments {
 
     private String metricsEndpoint = null;
     private boolean debug = false;
+    private boolean trace = false;
     private int intervalSeconds = 10;
     private RequestsPerSecondType rpsType = RequestsPerSecondType.SPRING_REQUEST;
 
     public static String usage() {
         return "Usage: java CfMetricsExporter " +
-                "--debug,-d --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random> ";
+                "--debug,-d --trace --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random> ";
     }
 
     public static void print(String message) {
@@ -53,6 +54,11 @@ public class Arguments {
 
             if (matches(arg, "-d", "--debug", "debug")) {
                 arguments.debug = true;
+                continue;
+            }
+
+            if (matches(arg, "--trace", "trace")) {
+                arguments.trace = true;
                 continue;
             }
 
@@ -91,11 +97,16 @@ public class Arguments {
                 ", intervalSeconds=" + intervalSeconds +
                 ", rpsType=" + rpsType +
                 ", debug=" + debug +
+                ", trace=" + trace +
                 '}';
     }
 
     public boolean isDebug() {
         return debug;
+    }
+
+    public boolean isTrace() {
+        return trace;
     }
 
     public String metricsEndpoint() {

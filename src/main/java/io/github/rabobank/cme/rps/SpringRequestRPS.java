@@ -28,7 +28,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class SpringRequestRPS implements RequestsPerSecond {
-    private static final Logger log = Logger.getLogger(SpringRequestRPS.class);
+    // make available for the byte buddy handler to log some debug
+    public static final Logger log = Logger.getLogger(SpringRequestRPS.class);
 
     private static final AtomicInteger REQUEST_COUNTER = new AtomicInteger(0);
     private static final AtomicLong LAST_RESET_TIME = new AtomicLong(System.currentTimeMillis());
@@ -36,12 +37,12 @@ public class SpringRequestRPS implements RequestsPerSecond {
     private static volatile int currentRps = 0;
 
     public static void initializeSpringInstrumentation(Instrumentation instrumentation) {
-        log.info("Initializing Spring instrumentation");
+        log.debug("Initializing Spring instrumentation");
 
         AgentBuilder.Listener debugListener = new AgentBuilder.Listener() {
             @Override
             public void onDiscovery(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.debug("Discovered: %s", typeName);
+                log.trace("Discovered: %s", typeName);
             }
 
             @Override
@@ -51,18 +52,17 @@ public class SpringRequestRPS implements RequestsPerSecond {
 
             @Override
             public void onIgnored(TypeDescription typeDescription, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.debug("Ignored: %s", typeDescription.getName());
+                log.trace("Ignored: %s", typeDescription.getName());
             }
 
             @Override
             public void onError(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable throwable) {
-                log.error("Error transforming: %s", typeName);
-                throwable.printStackTrace();
+                log.error("Error transforming: %s", throwable, typeName);
             }
 
             @Override
             public void onComplete(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.debug("Completed: %s", typeName);
+                log.trace("Completed: %s", typeName);
             }
         };
 
@@ -99,7 +99,10 @@ public class SpringRequestRPS implements RequestsPerSecond {
             // Private constructor to prevent instantiation
         }
         @Advice.OnMethodEnter
-        public static void onEnter(@Advice.Origin String method) {
+        public static void onEnter(@Advice.Origin String method, @Advice.This Object thiz) {
+            if (log.isTraceEnabled()) {
+                log.trace("Count request for %s on %s", method, thiz.getClass().getName());
+            }
             incrementRequestCount();
         }
     }
@@ -113,7 +116,8 @@ public class SpringRequestRPS implements RequestsPerSecond {
         // Calculate seconds elapsed, minimum 1 to avoid division by zero
         long secondsElapsed = Math.max(1, (currentTime - previousTime) / 1000);
 
-        currentRps = (int) (count / secondsElapsed);
+        // Report 1 RPS if there is at least 1 count, 0 if it is really 0 hits
+        currentRps = (int) Math.ceil((double) count / secondsElapsed);
 
         if (log.isDebugEnabled()) {
             log.debug("Spring request count in last %d seconds: %d, calculated RPS: %d",

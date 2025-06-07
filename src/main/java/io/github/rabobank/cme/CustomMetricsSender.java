@@ -17,8 +17,10 @@ package io.github.rabobank.cme;
 
 import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.domain.AutoScalerInfo;
+import io.github.rabobank.cme.domain.MtlsInfo;
 import io.github.rabobank.cme.rps.RequestsPerSecond;
 
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -34,13 +36,50 @@ public class CustomMetricsSender {
     private final AutoScalerInfo autoScalerInfo;
     private final ApplicationInfo applicationInfo;
 
-    private HttpClient client = HttpClient.newHttpClient();
+    private final HttpClient client;
+
     private final RequestsPerSecond requestsPerSecond;
 
-    CustomMetricsSender(RequestsPerSecond requestsPerSecond, AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo) {
+    private final String url;
+
+    CustomMetricsSender(RequestsPerSecond requestsPerSecond, AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo) throws CfMetricsAgentException {
+        this(requestsPerSecond, autoScalerInfo, applicationInfo, null);
+    }
+
+    CustomMetricsSender(RequestsPerSecond requestsPerSecond, AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo, MtlsInfo mtlsInfo) throws CfMetricsAgentException {
+
+        if (mtlsInfo == null && !autoScalerInfo.isBasicAuthConfigured()) {
+            throw new CfMetricsAgentException("No basic auth and no mTLS settings found.");
+        }
+
+        if (!autoScalerInfo.isBasicAuthConfigured()) {
+            log.info("No basic auth settings found, will use mTLS instead.");
+        }
+
         this.requestsPerSecond = requestsPerSecond;
         this.autoScalerInfo = autoScalerInfo;
         this.applicationInfo = applicationInfo;
+        boolean isMtlsEnabled = !autoScalerInfo.isBasicAuthConfigured() && autoScalerInfo.isMtlsAuthConfigured();
+        this.url = isMtlsEnabled ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl();
+        this.client = isMtlsEnabled ? createHttpClientMtls(mtlsInfo) : createHttpClientBasicAuth();
+    }
+
+    private HttpClient createHttpClientBasicAuth() {
+        return HttpClient.newHttpClient();
+    }
+
+    private HttpClient createHttpClientMtls(MtlsInfo mtlsInfo) throws CfMetricsAgentException {
+
+        if (mtlsInfo == null || !mtlsInfo.isValid()) {
+            throw new CfMetricsAgentException("Mtls settings are not present or not valid.");
+        }
+
+        // Create SSLContext with the provided PEM data
+        SSLContext sslContext = CertAndKeyProcessing.createSslContextFromPem(mtlsInfo);
+
+        return HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .build();
     }
 
     public void send() {
@@ -59,26 +98,31 @@ public class CustomMetricsSender {
 
             HttpRequest request = HttpRequest.newBuilder()
                     .timeout(Duration.ofSeconds(2))
-                    .uri(URI.create(autoScalerInfo.getUrl() + "/v1/apps/" + applicationInfo.getApplicationId() + "/metrics"))
+                    .uri(URI.create(url + "/v1/apps/" + applicationInfo.getApplicationId() + "/metrics"))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Basic " + encodeUsernamePassword(autoScalerInfo))
                     .POST(publisher)
                     .build();
 
-            try {
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                if (log.isDebugEnabled()) {
-                    log.debug("Response Status Code: %d", response.statusCode());
-                    log.debug("Response Body: %s", response.body());
-                }
-            } catch (IOException e) {
-                log.error("cannot reach server: %s %s", request.uri(), e);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("agent interrupted: %s", e);
-            }
+            sendRequest(request);
+
         } catch (Throwable e) {
-            log.error("unexpected agent error: %s", e);
+            log.error("error sending RPS", e);
+        }
+    }
+
+    private void sendRequest(HttpRequest request) {
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (log.isTraceEnabled()) {
+                String body = response.body();
+                log.trace("Response Status Code: %d Body: %s", response.statusCode(), body.isBlank() ? "<empty>" : body);
+            }
+        } catch (IOException e) {
+            log.error("cannot reach server: %s", e, request.uri());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("agent interrupted", e);
         }
     }
 
