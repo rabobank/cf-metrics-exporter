@@ -35,6 +35,7 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import java.util.Collection;
@@ -44,7 +45,7 @@ import java.util.stream.Collectors;
 
 public class CertAndKeyProcessing {
 
-    private static Logger log = Logger.getLogger(CertAndKeyProcessing.class);
+    private static final Logger log = Logger.getLogger(CertAndKeyProcessing.class);
 
     private CertAndKeyProcessing() {
         // do not create instances
@@ -147,7 +148,7 @@ public class CertAndKeyProcessing {
                 .replaceAll("\\s|\\r|\\n", "");
     }
 
-    private static PrivateKey loadPrivateKeyFromPem(String pemKey) throws Exception {
+    private static PrivateKey loadPrivateKeyFromPem(String pemKey) throws CfMetricsAgentException {
         // Clean and prepare PEM content
         String privateKeyPEM = cleanPemContent(pemKey);
 
@@ -156,20 +157,28 @@ public class CertAndKeyProcessing {
 
         if (pemKey.contains("BEGIN RSA PRIVATE KEY")) {
             // Traditional RSA key format
-            Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
-            PEMParser pemParser = new PEMParser(new StringReader(pemKey));
-            JcaPEMKeyConverter converter = new JcaPEMKeyConverter().setProvider("BC");
-            Object object = pemParser.readObject();
-            if (object instanceof PEMKeyPair) {
-                return converter.getPrivateKey(((PEMKeyPair) object).getPrivateKeyInfo());
-            } else {
-                return converter.getPrivateKey((PrivateKeyInfo) object);
+            try {
+                Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+                PEMParser pemParser = new PEMParser(new StringReader(pemKey));
+                JcaPEMKeyConverter converter = new JcaPEMKeyConverter().setProvider("BC");
+                Object object = pemParser.readObject();
+                if (object instanceof PEMKeyPair) {
+                    return converter.getPrivateKey(((PEMKeyPair) object).getPrivateKeyInfo());
+                } else {
+                    return converter.getPrivateKey((PrivateKeyInfo) object);
+                }
+            } catch (IOException e) {
+                throw new CfMetricsAgentException("Failed to process rsa key", e);
             }
         } else if (pemKey.contains("BEGIN PRIVATE KEY")) {
-            // PKCS#8 format
-            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-            PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(der);
-            return keyFactory.generatePrivate(keySpec);
+            try {
+                // PKCS#8 format
+                KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+                PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(der);
+                return keyFactory.generatePrivate(keySpec);
+            } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+                throw new CfMetricsAgentException("Failed to process pkcs8 key", e);
+            }
         }
         else {
             throw new CfMetricsAgentException("Failed to load private key, unknown format");
