@@ -33,6 +33,9 @@ import java.util.Base64;
 public class CustomMetricsSender {
 
     private static final Logger log = Logger.getLogger(CustomMetricsSender.class);
+
+    public static final String CUSTOM_THROUGHPUT_METRIC_NAME = "custom_throughput";
+
     private final AutoScalerInfo autoScalerInfo;
     private final ApplicationInfo applicationInfo;
 
@@ -136,7 +139,7 @@ public class CustomMetricsSender {
                 "    \"instance_index\": " + index + ",\n" +
                 "    \"metrics\": [\n" +
                 "      {\n" +
-                "        \"name\": \"custom_http_throughput\",\n" +
+                "        \"name\": \"" + CUSTOM_THROUGHPUT_METRIC_NAME + "\",\n" +
                 "        \"value\": " + value + ",\n" +
                 "        \"unit\": \"rps\"\n" +
                 "      }\n" +

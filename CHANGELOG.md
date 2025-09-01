@@ -2,6 +2,7 @@
 
 ### v0.3.0: August 2025
 * Release to maven central
+* Changed metric name from `custom_http_throughput` to `custom_throughput`
 * Update dependencies
 
 ### v0.2.0: July 2025

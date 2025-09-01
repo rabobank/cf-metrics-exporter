@@ -9,7 +9,8 @@ The purpose of this agent:
 * collect RPS (Requests Per Second) from the application
 * send RPS to cloud foundry custom metrics endpoint 
 
-Sends custom metric with name `custom_http_throughput` and unit: `rps`.
+Sends custom metric with name `custom_throughput` and unit: `rps`.
+(Cloud Foundry auto scaler has a `throughput` metric.)
 
 The RPS is calculated as an average over the configured interval (default 10 seconds).
 
