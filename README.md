@@ -13,17 +13,7 @@ Sends custom metric with name `custom_http_throughput` and unit: `rps`.
 
 The RPS is calculated as an average over the configured interval (default 10 seconds).
 
-### Tomcat RPS
-
-For Tomcat use the JMX MBean and Attribute:
-* `Tomcat:type=GlobalRequestProcessor,name="http-nio-8080"` (or similar, depending on your Tomcat configuration)
-* `Attribute: requestCount`
-
-Needs explicit application setting: `server.tomcat.mbeanregistry.enabled=true`
-
-Use `rspType=tomcat-mbean` to enable this feature (default).
-
-### Spring Boot RPS 
+### Spring Boot RPS
 
 Transform these classes with ByteBuddy on SpringBoot API to count request/reply:
 
@@ -32,12 +22,22 @@ Transform these classes with ByteBuddy on SpringBoot API to count request/reply:
 
 No need to enable Tomcat MBeans via application settings
 
-Works for all Spring Boot servers: 
-* Netty (WebFlux/Reactor) 
+Works for all Spring Boot servers:
+* Netty (WebFlux/Reactor)
 * Tomcat (also with virtual threads)
 * Undertow
 
 Use `rspType=spring-request` to enable this feature (default).
+
+### Tomcat RPS
+
+For Tomcat use the JMX MBean and Attribute:
+* `Tomcat:type=GlobalRequestProcessor,name="http-nio-8080"` (or similar, depending on your Tomcat configuration)
+* `Attribute: requestCount`
+
+Needs explicit application setting: `server.tomcat.mbeanregistry.enabled=true`
+
+Use `rspType=tomcat-mbean` to enable this feature.
 
 ### Random RPS
 

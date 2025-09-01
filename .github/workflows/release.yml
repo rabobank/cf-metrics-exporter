@@ -4,11 +4,17 @@ run-name: Build ${{ github.ref_name }} by @${{ github.actor }}
 
 on:
   release:
-    types: [ created ]
+    types: [ published ]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
       packages: write
@@ -19,18 +25,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get short SHA
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
+          server-id: central
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+          gpg-private-key: ${{ secrets.GPG_SIGNING_KEY }}
 
-      - name: Maven build
-        run: ./mvnw -Drevision=${{ github.event.release.tag_name }} clean package
+      # if no tag exists, this is expected to fail
+      - name: Switch to git tag for release
+        run: |
+          git fetch --all --tags -f
+          git checkout tags/${{ github.event.release.tag_name }} -b ${{ github.event.release.tag_name }}-tmp-branch
+
+      - name: Deploy
+        env:
+          MAVEN_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSWORD }}
+        run: |
+          ./mvnw --batch-mode -Drevision=${{ github.event.release.tag_name }} -P release clean deploy
 
       - uses: ncipollo/release-action@v1
         with:
