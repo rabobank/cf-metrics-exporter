@@ -29,5 +29,8 @@ class ApplicationInfoTest {
         ApplicationInfo applicationInfo = ApplicationInfo.extractApplicationInfo(VCAP_APPLICATION, CF_INSTANCE_INDEX);
         assertEquals("6f452e74-application-id", applicationInfo.getApplicationId());
         assertEquals(0, applicationInfo.getIndex());
+        assertEquals("my-app-demo", applicationInfo.getApplicationName());
+        assertEquals("my-space", applicationInfo.getSpaceName());
+        assertEquals("example-org", applicationInfo.getOrganizationName());
     }
 }

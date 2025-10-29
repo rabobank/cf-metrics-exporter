@@ -22,9 +22,15 @@ public class ApplicationInfo {
 
     private final String applicationId;
     private final int index;
-    public ApplicationInfo(String applicationId, int index) {
+    private final String applicationName;
+    private final String spaceName;
+    private final String organizationName;
+    public ApplicationInfo(String applicationId, int index, String applicationName, String spaceName, String organizationName) {
         this.applicationId = applicationId;
         this.index = index;
+        this.applicationName = applicationName;
+        this.spaceName = spaceName;
+        this.organizationName = organizationName;
     }
 
     public String getApplicationId() {
@@ -35,22 +41,29 @@ public class ApplicationInfo {
         return index;
     }
 
+    public String getApplicationName() { return applicationName; }
+    public String getSpaceName() { return spaceName; }
+    public String getOrganizationName() { return organizationName; }
+
     public static ApplicationInfo extractApplicationInfo(String vcapApplicationJson, String cfInstanceIndex) {
-        String applicationId = findApplicationId(vcapApplicationJson);
-        return new ApplicationInfo(applicationId, Integer.valueOf(cfInstanceIndex));
+        String applicationId = findField(vcapApplicationJson, APPLICATION_ID_PATTERN, "Application ID");
+        String applicationName = findField(vcapApplicationJson, APPLICATION_NAME_PATTERN, "Application Name");
+        String spaceName = findField(vcapApplicationJson, SPACE_NAME_PATTERN, "Space Name");
+        String organizationName = findField(vcapApplicationJson, ORG_NAME_PATTERN, "Organization Name");
+        return new ApplicationInfo(applicationId, Integer.valueOf(cfInstanceIndex), applicationName, spaceName, organizationName);
     }
 
     public static final Pattern APPLICATION_ID_PATTERN = Pattern.compile("\"application_id\"\\s*:\\s*\"([^\"]+)\"");
+    public static final Pattern APPLICATION_NAME_PATTERN = Pattern.compile("\"application_name\"\\s*:\\s*\"([^\"]+)\"");
+    public static final Pattern SPACE_NAME_PATTERN = Pattern.compile("\"space_name\"\\s*:\\s*\"([^\"]+)\"");
+    public static final Pattern ORG_NAME_PATTERN = Pattern.compile("\"organization_name\"\\s*:\\s*\"([^\"]+)\"");
 
-    private static String findApplicationId(String vcapApplicationJson) {
-        String applicationId;
-        Matcher matcher = APPLICATION_ID_PATTERN.matcher(vcapApplicationJson);
+    private static String findField(String json, Pattern pattern, String fieldName) {
+        Matcher matcher = pattern.matcher(json);
         if (matcher.find()) {
-            applicationId = matcher.group(1);
-        } else {
-            throw new IllegalArgumentException("Application ID not found in VCAP_APPLICATION");
+            return matcher.group(1);
         }
-        return applicationId;
+        throw new IllegalArgumentException(fieldName + " not found in VCAP_APPLICATION");
     }
 
     @Override

@@ -25,6 +25,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import static io.github.rabobank.cme.domain.ApplicationInfo.extractApplicationInfo;
 import static io.github.rabobank.cme.domain.AutoScalerInfo.extractMetricsServerInfo;
@@ -128,7 +130,26 @@ public class CfMetricsAgent {
             return;
         }
 
-        scheduler.scheduleAtFixedRate(customMetricsSender::send, 0, args.intervalSeconds(), java.util.concurrent.TimeUnit.SECONDS);
+        // Schedule App Autoscaler custom metrics sender
+        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(customMetricsSender::send, 0, args.intervalSeconds(), TimeUnit.SECONDS);
+
+        // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
+        String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
+        if (otlpUrl != null && !otlpUrl.isBlank()) {
+            log.info("OTLP metrics export enabled to %s", otlpUrl);
+            OtlpRpsExporter otlp = new OtlpRpsExporter(otlpUrl, requestsPerSecond, applicationInfo, args.environmentVarName());
+            ScheduledFuture<?> scheduledOtlp = scheduler.scheduleAtFixedRate(otlp::send, 0, args.intervalSeconds(), TimeUnit.SECONDS);
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                log.info("Shutdown hook triggered, cancelling scheduled tasks.");
+                scheduledAutoscaler.cancel(true);
+                scheduledOtlp.cancel(true);
+            }));
+        } else {
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                log.info("Shutdown hook triggered, cancelling scheduled task.");
+                scheduledAutoscaler.cancel(true);
+            }));
+        }
 
     }
 

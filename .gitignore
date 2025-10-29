@@ -4,3 +4,4 @@ target
 .DS_Store
 dependency-reduced-pom.xml
 mtls-certs/generated-certs
+/mtls-certs/client-key-orig.pem
