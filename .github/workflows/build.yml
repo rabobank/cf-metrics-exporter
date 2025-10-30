@@ -22,7 +22,7 @@ jobs:
 
       - name: Set tag name
         run: |
-          echo "TAG_NAME=$(../mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)" >> $GITHUB_ENV
+          echo "TAG_NAME=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)" >> $GITHUB_ENV
 
       - name: Get short SHA
         id: vars
