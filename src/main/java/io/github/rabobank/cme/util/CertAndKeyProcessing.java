@@ -13,8 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.rabobank.cme;
+package io.github.rabobank.cme.util;
 
+import io.github.rabobank.cme.CfMetricsAgent;
+import io.github.rabobank.cme.CfMetricsAgentException;
+import io.github.rabobank.cme.Logger;
 import io.github.rabobank.cme.domain.MtlsInfo;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.openssl.PEMKeyPair;
@@ -42,6 +45,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 
 public class CertAndKeyProcessing {
 
@@ -207,5 +212,35 @@ public class CertAndKeyProcessing {
             log.error("Cannot list certificate files in directory: %s", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    public static MtlsInfo initializeMtlsInfo() {
+        String cfInstanceCert = System.getenv("CF_INSTANCE_CERT");
+        String cfInstanceKey = System.getenv("CF_INSTANCE_KEY");
+        String cfSystemCertPath = System.getenv("CF_SYSTEM_CERT_PATH");
+
+        if (cfSystemCertPath == null) {
+            log.error("CF_SYSTEM_CERT_PATH is not available in env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        if (cfInstanceCert == null) {
+            log.error("CF_INSTANCE_CERT is not available in env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        if (cfInstanceKey == null) {
+            log.error("CF_INSTANCE_KEY is not available in env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        List<Path> crtFiles = listAllCrtFiles(cfSystemCertPath);
+
+        if (crtFiles.isEmpty()) {
+            log.error("No CA certificates (*.crt files) found in %s, CfMetricsAgent cannot start.", cfSystemCertPath);
+            return INVALID_MTLS_INFO;
+        }
+
+        return MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
     }
 }

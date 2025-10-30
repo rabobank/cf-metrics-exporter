@@ -15,6 +15,7 @@
  */
 package io.github.rabobank.cme.rps;
 
+@FunctionalInterface
 public interface RequestsPerSecond {
      int rps();
 }

@@ -18,11 +18,13 @@ package io.github.rabobank.cme;
 import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.domain.AutoScalerInfo;
 import io.github.rabobank.cme.domain.MtlsInfo;
+import io.github.rabobank.cme.otlp.OtlpRpsExporter;
 import io.github.rabobank.cme.rps.*;
+import io.github.rabobank.cme.util.CertAndKeyProcessing;
 
 import java.lang.instrument.Instrumentation;
-import java.nio.file.Path;
-import java.util.List;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -90,7 +92,7 @@ public class CfMetricsAgent {
         }
 
         // can return invalid mtlsInfo when not all info is available
-        MtlsInfo mtlsInfo = autoScalerInfo.isBasicAuthConfigured() ? INVALID_MTLS_INFO : initializeMtlsInfo();
+        MtlsInfo mtlsInfo = autoScalerInfo.isBasicAuthConfigured() ? INVALID_MTLS_INFO : CertAndKeyProcessing.initializeMtlsInfo();
 
         if (!autoScalerInfo.isBasicAuthConfigured() && (mtlsInfo == null || !mtlsInfo.isValid())) {
             log.error("Autoscaler basic auth not available and mTLS settings are incomplete, CfMetricsAgent cannot start.");
@@ -131,14 +133,16 @@ public class CfMetricsAgent {
         }
 
         // Schedule App Autoscaler custom metrics sender
-        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(customMetricsSender::send, 0, args.intervalSeconds(), TimeUnit.SECONDS);
+        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(customMetricsSender::send, 30, args.intervalSeconds(), TimeUnit.SECONDS);
 
         // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
         String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
-        if (otlpUrl != null && !otlpUrl.isBlank()) {
+        URI otlpMetricsUri = parseUri(otlpUrl);
+
+        if (otlpMetricsUri != null) {
             log.info("OTLP metrics export enabled to %s", otlpUrl);
-            OtlpRpsExporter otlp = new OtlpRpsExporter(otlpUrl, requestsPerSecond, applicationInfo, args.environmentVarName());
-            ScheduledFuture<?> scheduledOtlp = scheduler.scheduleAtFixedRate(otlp::send, 0, args.intervalSeconds(), TimeUnit.SECONDS);
+            OtlpRpsExporter otlp = new OtlpRpsExporter(otlpMetricsUri, requestsPerSecond, applicationInfo, args.environmentVarName());
+            ScheduledFuture<?> scheduledOtlp = scheduler.scheduleAtFixedRate(otlp::send, 30, args.intervalSeconds(), TimeUnit.SECONDS);
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("Shutdown hook triggered, cancelling scheduled tasks.");
                 scheduledAutoscaler.cancel(true);
@@ -150,37 +154,25 @@ public class CfMetricsAgent {
                 scheduledAutoscaler.cancel(true);
             }));
         }
-
     }
 
-    private static MtlsInfo initializeMtlsInfo() {
-        String cfInstanceCert = System.getenv("CF_INSTANCE_CERT");
-        String cfInstanceKey = System.getenv("CF_INSTANCE_KEY");
-        String cfSystemCertPath = System.getenv("CF_SYSTEM_CERT_PATH");
-
-        if (cfSystemCertPath == null) {
-            log.error("CF_SYSTEM_CERT_PATH is not available in env variables.");
-            return INVALID_MTLS_INFO;
+    /**
+     * @param otlpUrl the url in String format
+     * @return null if the given URL is invalid
+     */
+    private static URI parseUri(String otlpUrl) {
+        if (otlpUrl == null || otlpUrl.isEmpty()) {
+            return null;
         }
 
-        if (cfInstanceCert == null) {
-            log.error("CF_INSTANCE_CERT is not available in env variables.");
-            return INVALID_MTLS_INFO;
+        final URI otlpMetricsUri;
+        try {
+            otlpMetricsUri = new URI(otlpUrl);
+        } catch (URISyntaxException e) {
+            log.error("Invalid OTLP metrics endpoint URL: %s, OTLP metric sending disabled.", otlpUrl);
+            return null;
         }
-
-        if (cfInstanceKey == null) {
-            log.error("CF_INSTANCE_KEY is not available in env variables.");
-            return INVALID_MTLS_INFO;
-        }
-
-        List<Path> crtFiles = CertAndKeyProcessing.listAllCrtFiles(cfSystemCertPath);
-
-        if (crtFiles.isEmpty()) {
-            log.error("No CA certificates (*.crt files) found in %s, CfMetricsAgent cannot start.", cfSystemCertPath);
-            return INVALID_MTLS_INFO;
-        }
-
-        return MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
+        return otlpMetricsUri;
     }
 
     public static void premain(String args, Instrumentation instrumentation){

@@ -19,16 +19,12 @@ import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.domain.AutoScalerInfo;
 import io.github.rabobank.cme.domain.MtlsInfo;
 import io.github.rabobank.cme.rps.RequestsPerSecond;
+import io.github.rabobank.cme.util.HttpUtil;
 
-import javax.net.ssl.SSLContext;
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.Base64;
 
 public class CustomMetricsSender {
 
@@ -36,14 +32,15 @@ public class CustomMetricsSender {
 
     public static final String CUSTOM_THROUGHPUT_METRIC_NAME = "custom_throughput";
 
-    private final AutoScalerInfo autoScalerInfo;
     private final ApplicationInfo applicationInfo;
 
-    private final HttpClient client;
+    private final HttpClient httpClient;
 
     private final RequestsPerSecond requestsPerSecond;
 
     private final String url;
+    private URI metricsUri;
+    private String basicAuthHeader;
 
     CustomMetricsSender(RequestsPerSecond requestsPerSecond, AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo) throws CfMetricsAgentException {
         this(requestsPerSecond, autoScalerInfo, applicationInfo, null);
@@ -60,29 +57,12 @@ public class CustomMetricsSender {
         }
 
         this.requestsPerSecond = requestsPerSecond;
-        this.autoScalerInfo = autoScalerInfo;
         this.applicationInfo = applicationInfo;
         boolean isMtlsEnabled = !autoScalerInfo.isBasicAuthConfigured() && autoScalerInfo.isMtlsAuthConfigured();
         this.url = isMtlsEnabled ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl();
-        this.client = isMtlsEnabled ? createHttpClientMtls(mtlsInfo) : createHttpClientBasicAuth();
-    }
-
-    private HttpClient createHttpClientBasicAuth() {
-        return HttpClient.newHttpClient();
-    }
-
-    private HttpClient createHttpClientMtls(MtlsInfo mtlsInfo) throws CfMetricsAgentException {
-
-        if (mtlsInfo == null || !mtlsInfo.isValid()) {
-            throw new CfMetricsAgentException("Mtls settings are not present or not valid.");
-        }
-
-        // Create SSLContext with the provided PEM data
-        SSLContext sslContext = CertAndKeyProcessing.createSslContextFromPem(mtlsInfo);
-
-        return HttpClient.newBuilder()
-                .sslContext(sslContext)
-                .build();
+        this.httpClient = isMtlsEnabled ? HttpUtil.createHttpClientMtls(mtlsInfo) : HttpUtil.createHttpClient();
+        this.metricsUri = URI.create(url + "/v1/apps/" + applicationInfo.getApplicationId() + "/metrics");
+        this.basicAuthHeader = HttpUtil.encodeBasicAuthHeader(autoScalerInfo.getUsername(), autoScalerInfo.getPassword());
     }
 
     public void send() {
@@ -100,41 +80,21 @@ public class CustomMetricsSender {
                     createPayload(rps, applicationInfo.getIndex()), StandardCharsets.UTF_8);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .timeout(Duration.ofSeconds(2))
-                    .uri(URI.create(url + "/v1/apps/" + applicationInfo.getApplicationId() + "/metrics"))
+                    .timeout(HttpUtil.HTTP_REQUEST_TIMEOUT)
+                    .uri(metricsUri)
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Basic " + encodeUsernamePassword(autoScalerInfo))
+                    .header("Authorization", basicAuthHeader)
                     .POST(publisher)
                     .build();
 
-            sendRequest(request);
+            HttpUtil.sendRequest(httpClient, request);
 
         } catch (Throwable e) {
             log.error("error sending RPS", e);
         }
     }
 
-    private void sendRequest(HttpRequest request) {
-        try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (log.isTraceEnabled()) {
-                String body = response.body();
-                log.trace("Response Status Code: %d Body: %s", response.statusCode(), body.isBlank() ? "<empty>" : body);
-            }
-        } catch (IOException e) {
-            log.error("cannot reach server: %s", e, request.uri());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("agent interrupted", e);
-        }
-    }
-
-    private static String encodeUsernamePassword(AutoScalerInfo autoScalerInfo) {
-        return Base64.getEncoder().encodeToString((autoScalerInfo.getUsername() + ":" + autoScalerInfo.getPassword()).getBytes(StandardCharsets.UTF_8));
-    }
-
     private String createPayload(int value, int index) {
-
         return "{\n" +
                 "    \"instance_index\": " + index + ",\n" +
                 "    \"metrics\": [\n" +
