@@ -20,6 +20,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set tag name
+        run: |
+          echo "TAG_NAME=$(../mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)" >> $GITHUB_ENV
+
       - name: Get short SHA
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
