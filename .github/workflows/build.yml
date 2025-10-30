@@ -35,7 +35,7 @@ jobs:
           java-version: '11'
 
       - name: Maven build
-        run: ./mvnw -Drevision=LOCAL-SNAPSHOT clean package
+        run: ./mvnw clean package
 
       - name: Upload java agent jar to github actions build
         uses: actions/upload-artifact@v4
