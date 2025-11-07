@@ -20,6 +20,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set tag name
+        run: |
+          echo "TAG_NAME=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)" >> $GITHUB_ENV
+
       - name: Get short SHA
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
@@ -31,5 +35,11 @@ jobs:
           java-version: '11'
 
       - name: Maven build
-        run: ./mvnw -Drevision=LOCAL-SNAPSHOT clean package
+        run: ./mvnw clean package
+
+      - name: Upload java agent jar to github actions build
+        uses: actions/upload-artifact@v4
+        with:
+          name: cf-metrics-exporter-${{ env.TAG_NAME }}-${{ github.run_id }}.jar
+          path: target/cf-metrics-exporter-${{ env.TAG_NAME }}.jar
 

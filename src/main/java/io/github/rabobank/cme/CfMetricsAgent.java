@@ -15,16 +15,23 @@
  */
 package io.github.rabobank.cme;
 
+import io.github.rabobank.cme.cf.CustomMetricsSender;
 import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.domain.AutoScalerInfo;
 import io.github.rabobank.cme.domain.MtlsInfo;
+import io.github.rabobank.cme.otlp.OtlpRpsExporter;
 import io.github.rabobank.cme.rps.*;
+import io.github.rabobank.cme.util.CertAndKeyProcessing;
 
 import java.lang.instrument.Instrumentation;
-import java.nio.file.Path;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import static io.github.rabobank.cme.domain.ApplicationInfo.extractApplicationInfo;
 import static io.github.rabobank.cme.domain.AutoScalerInfo.extractMetricsServerInfo;
@@ -33,6 +40,8 @@ import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 public class CfMetricsAgent {
 
     private static final Logger log = Logger.getLogger(CfMetricsAgent.class);
+
+    public static final String CUSTOM_THROUGHPUT_METRIC_NAME = "custom_throughput";
 
     public static void main(String[] args) {
 
@@ -88,7 +97,7 @@ public class CfMetricsAgent {
         }
 
         // can return invalid mtlsInfo when not all info is available
-        MtlsInfo mtlsInfo = autoScalerInfo.isBasicAuthConfigured() ? INVALID_MTLS_INFO : initializeMtlsInfo();
+        MtlsInfo mtlsInfo = autoScalerInfo.isBasicAuthConfigured() ? INVALID_MTLS_INFO : CertAndKeyProcessing.initializeMtlsInfo();
 
         if (!autoScalerInfo.isBasicAuthConfigured() && (mtlsInfo == null || !mtlsInfo.isValid())) {
             log.error("Autoscaler basic auth not available and mTLS settings are incomplete, CfMetricsAgent cannot start.");
@@ -97,7 +106,7 @@ public class CfMetricsAgent {
 
         log.info("Start CfMetricsAgent with arguments: %s", args);
         
-        // Create a single thread scheduler that runs every 10 seconds
+        // Create a single thread scheduler
         ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread thread = new Thread(r);
@@ -120,46 +129,67 @@ public class CfMetricsAgent {
                 break;
         }
 
-        CustomMetricsSender customMetricsSender;
-        try {
-            customMetricsSender = new CustomMetricsSender(requestsPerSecond, autoScalerInfo, applicationInfo, mtlsInfo);
-        } catch (Exception e) {
-            log.error("Cannot create CustomMetricsSender, not starting CfMetricsAgent.", e);
-            return;
-        }
+        List<MetricEmitter> emitters = new ArrayList<>();
+        createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
+        createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, emitters);
 
-        scheduler.scheduleAtFixedRate(customMetricsSender::send, 0, args.intervalSeconds(), java.util.concurrent.TimeUnit.SECONDS);
+        MetricsProcessor metricsProcessor = new MetricsProcessor(requestsPerSecond, emitters);
+
+        // Schedule sending of metrics
+        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(metricsProcessor::tick, 30, args.intervalSeconds(), TimeUnit.SECONDS);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Shutdown hook triggered, cancelling scheduled task.");
+            scheduledAutoscaler.cancel(true);
+            scheduler.shutdownNow();
+            log.info("Shutdown complete.");
+        }));
 
     }
 
-    private static MtlsInfo initializeMtlsInfo() {
-        String cfInstanceCert = System.getenv("CF_INSTANCE_CERT");
-        String cfInstanceKey = System.getenv("CF_INSTANCE_KEY");
-        String cfSystemCertPath = System.getenv("CF_SYSTEM_CERT_PATH");
+    private static void createAndAddOtlpExporter(String environmentVarName, ApplicationInfo applicationInfo, List<MetricEmitter> emitters) {
+        try {
+            // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
+            String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
+            URI otlpMetricsUri = parseUri(otlpUrl);
+            if (otlpMetricsUri != null) {
+                OtlpRpsExporter otlpExporter = new OtlpRpsExporter(otlpMetricsUri, applicationInfo, environmentVarName);
+                emitters.add(otlpExporter);
+                log.info("OTLP metrics export enabled to %s", otlpUrl);
+            }
+        } catch (Exception e) {
+            log.error("Cannot create OTLP exporter, will not emit metrics to OTLP endpoint.", e);
+        }
+    }
 
-        if (cfSystemCertPath == null) {
-            log.error("CF_SYSTEM_CERT_PATH is not available in env variables.");
-            return INVALID_MTLS_INFO;
+    private static void createAndAddCustomMetricsSender(AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo, MtlsInfo mtlsInfo, List<MetricEmitter> emitters) {
+        CustomMetricsSender customMetricsSender;
+        try {
+            customMetricsSender = new CustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo);
+            emitters.add(customMetricsSender);
+            log.info("Custom metrics sender enabled to %s", autoScalerInfo.isMtlsAuthConfigured() ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl());
+        } catch (Exception e) {
+            log.error("Cannot create CustomMetricsSender, will not emit metrics to cloud foundry custom metrics endpoint.", e);
+        }
+    }
+
+    /**
+     * @param otlpUrl the url in String format
+     * @return null if the given URL is invalid
+     */
+    private static URI parseUri(String otlpUrl) {
+        if (otlpUrl == null || otlpUrl.isEmpty()) {
+            return null;
         }
 
-        if (cfInstanceCert == null) {
-            log.error("CF_INSTANCE_CERT is not available in env variables.");
-            return INVALID_MTLS_INFO;
+        final URI otlpMetricsUri;
+        try {
+            otlpMetricsUri = new URI(otlpUrl);
+        } catch (URISyntaxException e) {
+            log.error("Invalid OTLP metrics endpoint URL: %s, OTLP metric sending disabled.", otlpUrl);
+            return null;
         }
-
-        if (cfInstanceKey == null) {
-            log.error("CF_INSTANCE_KEY is not available in env variables.");
-            return INVALID_MTLS_INFO;
-        }
-
-        List<Path> crtFiles = CertAndKeyProcessing.listAllCrtFiles(cfSystemCertPath);
-
-        if (crtFiles.isEmpty()) {
-            log.error("No CA certificates (*.crt files) found in %s, CfMetricsAgent cannot start.", cfSystemCertPath);
-            return INVALID_MTLS_INFO;
-        }
-
-        return MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
+        return otlpMetricsUri;
     }
 
     public static void premain(String args, Instrumentation instrumentation){

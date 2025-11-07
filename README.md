@@ -12,7 +12,8 @@ The purpose of this agent:
 Sends custom metric with name `custom_throughput` and unit: `rps`.
 (Cloud Foundry auto scaler has a `throughput` metric.)
 
-The RPS is calculated as an average over the configured interval (default 10 seconds).
+The RPS is calculated as an **average** over the configured interval (default 10 seconds).
+So the longer the interval, the fewer peaks in RPS over time are reported.
 
 ### Spring Boot RPS
 
@@ -64,23 +65,38 @@ The following settings are available:
 - `debug`: Enable debug logging.
 - `rpsType`: Type of RPS to use. Options are `spring-request` (default), `random`, `tomcat-mbean`.
 - `intervalSeconds`: Interval in seconds for sending metrics. Default is 10 seconds. Note: the average RPS is calculated for every interval.
-- `metricsEndpoint`: The endpoint to send metrics to. Not used currently, will pick it up from VCAP_SERVICES.
+- `metricsEndpoint`: The endpoint to send metrics to. Not used currently, will pick it up from `VCAP_SERVICES`.
+- `environmentVarName`: The name of the environment variable to use to extract the value for the environment (e.g `CF_ENVIRONMENT` where for example `CF_ENVIROMENT=test` in the env settings). 
 
 Run with debug enabled to see stacktraces of exceptions.
 
 ## Env variables
 
 The following environment variables are used from within the cloud foundry container:
-- VCAP_APPLICATION
-- VCAP_SERVICES
-- CF_INSTANCE_INDEX
+- `VCAP_APPLICATION`
+- `VCAP_SERVICES`
+- `CF_INSTANCE_INDEX`
 
-The VCAP_SERVICES should contain the custom metrics endpoint and basic auth credentials. mTLS is not supported.
+The `VCAP_SERVICES` should contain the custom metrics endpoint and basic auth credentials. mTLS is not supported.
 
 There is a `src/test/resources/test.env` file that can be used to set these variables for local testing.
 The `src/test/resources/test-missing-basic-auth.env` can be used to test with mTLS instead of basic auth.
 
 Use via `source src/test/resources/test.env` in your terminal or add as env file in the IDE runner.
+
+# Open Telemetry
+
+The agent will send the RPS metric to an Open Telemetry endpoint if the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable is set.
+It only supports the http protocol and no authentication as of yet. The metric name is `custom_throughput`. The unit is `1/s`.
+The attributes are:    
+- `cf_application_name`
+- `cf_space_name`
+- `cf_organization_name`
+- `cf_instance_index`
+- `environment`
+
+- The `environment` is the value of the system environment as given by the `environmentVarName` variable.
+
 
 ## Build
 

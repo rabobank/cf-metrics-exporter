@@ -26,7 +26,7 @@ class ArgumentsTest {
     @Test
     void parseArgsMetricsEndpoint() {
 
-        String[] args = {"-d", "--metricsEndpoint", "https://example.com/metrics", "--intervalSeconds", "10", "--rpsType", "tomcat-mbean"};
+        String[] args = {"-d", "--metricsEndpoint", "https://example.com/metrics", "--intervalSeconds", "10", "--rpsType", "tomcat-mbean", "-e", "PCF_SYSTEM_ENV"};
 
         Arguments arguments = Arguments.parseArgs(args);
 

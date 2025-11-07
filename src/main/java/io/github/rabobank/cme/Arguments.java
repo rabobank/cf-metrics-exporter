@@ -28,10 +28,11 @@ public class Arguments {
     private boolean trace = false;
     private int intervalSeconds = 10;
     private RequestsPerSecondType rpsType = RequestsPerSecondType.SPRING_REQUEST;
+    private String environmentVarName = null;
 
     public static String usage() {
         return "Usage: java CfMetricsExporter " +
-                "--debug,-d --trace --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random> ";
+                "--debug,-d --trace --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random>,--environmentVarName,-e <ENV_VAR_NAME> ";
     }
 
     public static void print(String message) {
@@ -79,6 +80,11 @@ public class Arguments {
                 continue;
             }
 
+            if (matches(arg, "-e", "--environmentVarName", "environmentVarName")) {
+                arguments.environmentVarName = options.remove();
+                continue;
+            }
+
             print("WARN: unknown option: " + arg);
 
         }
@@ -98,6 +104,7 @@ public class Arguments {
                 ", rpsType=" + rpsType +
                 ", debug=" + debug +
                 ", trace=" + trace +
+                ", environmentVarName=" + environmentVarName +
                 '}';
     }
 
@@ -119,6 +126,10 @@ public class Arguments {
 
     public RequestsPerSecondType type() {
         return rpsType;
+    }
+
+    public String environmentVarName() {
+        return environmentVarName;
     }
 }
 

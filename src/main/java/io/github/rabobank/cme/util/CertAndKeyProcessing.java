@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.rabobank.cme;
+package io.github.rabobank.cme.util;
 
+import io.github.rabobank.cme.CfMetricsAgentException;
+import io.github.rabobank.cme.Logger;
 import io.github.rabobank.cme.domain.MtlsInfo;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.openssl.PEMKeyPair;
@@ -42,6 +44,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 
 public class CertAndKeyProcessing {
 
@@ -52,8 +57,8 @@ public class CertAndKeyProcessing {
     }
 
     static SSLContext createSslContextFromPem(MtlsInfo mtlsInfo) throws CfMetricsAgentException {
-        KeyStore keyStore = null;
-        CertificateFactory certFactory = null;
+        KeyStore keyStore;
+        CertificateFactory certFactory;
         try {
             // Load client certificate and key
             keyStore = KeyStore.getInstance("PKCS12");
@@ -67,7 +72,7 @@ public class CertAndKeyProcessing {
 
         // Load client certificate
         byte[] certBytes = mtlsInfo.getCert().getBytes(StandardCharsets.UTF_8);
-        X509Certificate clientCert = null;
+        X509Certificate clientCert;
         try {
             clientCert = (X509Certificate) certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
         } catch (CertificateException e) {
@@ -75,7 +80,7 @@ public class CertAndKeyProcessing {
         }
 
         // Load private key
-        PrivateKey privateKey = null;
+        PrivateKey privateKey;
         try {
             privateKey = loadPrivateKeyFromPem(mtlsInfo.getKey());
         } catch (Exception e) {
@@ -88,8 +93,8 @@ public class CertAndKeyProcessing {
         } catch (KeyStoreException e) {
             throw new CfMetricsAgentException("Failed to add client-cert to keyStore", e);
         }
-        KeyManagerFactory keyManagerFactory = null;
-        KeyStore trustStore = null;
+        KeyManagerFactory keyManagerFactory;
+        KeyStore trustStore;
 
         try {
             // Set up key manager
@@ -118,7 +123,7 @@ public class CertAndKeyProcessing {
         } catch (IOException | CertificateException | KeyStoreException e) {
             throw new CfMetricsAgentException("Failed to load ca certs into trust store", e);
         }
-        SSLContext sslContext = null;
+        SSLContext sslContext;
 
         try {
             // Set up trust manager
@@ -200,12 +205,42 @@ public class CertAndKeyProcessing {
             return Collections.emptyList();
         }
 
-        try (var paths = Files.list(directory)) {
+        try (Stream<Path> paths = Files.list(directory)) {
             return paths.filter(path -> path.toString().endsWith(".crt"))
                     .collect(Collectors.toUnmodifiableList());
         } catch (IOException e) {
             log.error("Cannot list certificate files in directory: %s", e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    public static MtlsInfo initializeMtlsInfo() {
+        String cfInstanceCert = System.getenv("CF_INSTANCE_CERT");
+        String cfInstanceKey = System.getenv("CF_INSTANCE_KEY");
+        String cfSystemCertPath = System.getenv("CF_SYSTEM_CERT_PATH");
+
+        if (cfSystemCertPath == null) {
+            log.error("CF_SYSTEM_CERT_PATH is not available in env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        if (cfInstanceCert == null) {
+            log.error("CF_INSTANCE_CERT is not available in env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        if (cfInstanceKey == null) {
+            log.error("CF_INSTANCE_KEY is not available in env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        List<Path> crtFiles = listAllCrtFiles(cfSystemCertPath);
+
+        if (crtFiles.isEmpty()) {
+            log.error("No CA certificates (*.crt files) found in %s, CfMetricsAgent cannot start.", cfSystemCertPath);
+            return INVALID_MTLS_INFO;
+        }
+
+        return MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
     }
 }

@@ -13,10 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.rabobank.cme.rps;
+package io.github.rabobank.cme;
 
-@FunctionalInterface
-public interface RequestsPerSecond {
-     int rps();
+public interface MetricEmitter {
+    void emitMetric(String metricName, int metricValue);
+    String name();
 }
-
