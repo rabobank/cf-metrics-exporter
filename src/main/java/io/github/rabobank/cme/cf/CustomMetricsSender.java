@@ -21,7 +21,6 @@ import io.github.rabobank.cme.MetricEmitter;
 import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.domain.AutoScalerInfo;
 import io.github.rabobank.cme.domain.MtlsInfo;
-import io.github.rabobank.cme.rps.RequestsPerSecond;
 import io.github.rabobank.cme.util.HttpUtil;
 
 import java.net.URI;
@@ -37,13 +36,8 @@ public class CustomMetricsSender implements MetricEmitter {
 
     private final HttpClient httpClient;
 
-    private final String url;
-    private URI metricsUri;
-    private String basicAuthHeader;
-
-    public CustomMetricsSender(AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo) throws CfMetricsAgentException {
-        this(autoScalerInfo, applicationInfo, null);
-    }
+    private final URI metricsUri;
+    private final String basicAuthHeader;
 
     public CustomMetricsSender(AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo, MtlsInfo mtlsInfo) throws CfMetricsAgentException {
 
@@ -57,7 +51,7 @@ public class CustomMetricsSender implements MetricEmitter {
 
         this.applicationInfo = applicationInfo;
         boolean isMtlsEnabled = !autoScalerInfo.isBasicAuthConfigured() && autoScalerInfo.isMtlsAuthConfigured();
-        this.url = isMtlsEnabled ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl();
+        String url = isMtlsEnabled ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl();
         this.httpClient = isMtlsEnabled ? HttpUtil.createHttpClientMtls(mtlsInfo) : HttpUtil.createHttpClient();
         this.metricsUri = URI.create(url + "/v1/apps/" + applicationInfo.getApplicationId() + "/metrics");
         this.basicAuthHeader = HttpUtil.encodeBasicAuthHeader(autoScalerInfo.getUsername(), autoScalerInfo.getPassword());

@@ -17,7 +17,6 @@ package io.github.rabobank.cme;
 
 import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.otlp.OtlpRpsExporter;
-import io.github.rabobank.cme.rps.RequestsPerSecond;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
