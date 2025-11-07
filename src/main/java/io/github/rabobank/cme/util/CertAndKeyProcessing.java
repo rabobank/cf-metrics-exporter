@@ -15,7 +15,6 @@
  */
 package io.github.rabobank.cme.util;
 
-import io.github.rabobank.cme.CfMetricsAgent;
 import io.github.rabobank.cme.CfMetricsAgentException;
 import io.github.rabobank.cme.Logger;
 import io.github.rabobank.cme.domain.MtlsInfo;
@@ -58,8 +57,8 @@ public class CertAndKeyProcessing {
     }
 
     static SSLContext createSslContextFromPem(MtlsInfo mtlsInfo) throws CfMetricsAgentException {
-        KeyStore keyStore = null;
-        CertificateFactory certFactory = null;
+        KeyStore keyStore;
+        CertificateFactory certFactory;
         try {
             // Load client certificate and key
             keyStore = KeyStore.getInstance("PKCS12");
@@ -73,7 +72,7 @@ public class CertAndKeyProcessing {
 
         // Load client certificate
         byte[] certBytes = mtlsInfo.getCert().getBytes(StandardCharsets.UTF_8);
-        X509Certificate clientCert = null;
+        X509Certificate clientCert;
         try {
             clientCert = (X509Certificate) certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
         } catch (CertificateException e) {
@@ -81,7 +80,7 @@ public class CertAndKeyProcessing {
         }
 
         // Load private key
-        PrivateKey privateKey = null;
+        PrivateKey privateKey;
         try {
             privateKey = loadPrivateKeyFromPem(mtlsInfo.getKey());
         } catch (Exception e) {
@@ -94,8 +93,8 @@ public class CertAndKeyProcessing {
         } catch (KeyStoreException e) {
             throw new CfMetricsAgentException("Failed to add client-cert to keyStore", e);
         }
-        KeyManagerFactory keyManagerFactory = null;
-        KeyStore trustStore = null;
+        KeyManagerFactory keyManagerFactory;
+        KeyStore trustStore;
 
         try {
             // Set up key manager
@@ -124,7 +123,7 @@ public class CertAndKeyProcessing {
         } catch (IOException | CertificateException | KeyStoreException e) {
             throw new CfMetricsAgentException("Failed to load ca certs into trust store", e);
         }
-        SSLContext sslContext = null;
+        SSLContext sslContext;
 
         try {
             // Set up trust manager
