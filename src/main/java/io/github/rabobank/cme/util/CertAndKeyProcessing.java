@@ -45,6 +45,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 
@@ -205,7 +206,7 @@ public class CertAndKeyProcessing {
             return Collections.emptyList();
         }
 
-        try (var paths = Files.list(directory)) {
+        try (Stream<Path> paths = Files.list(directory)) {
             return paths.filter(path -> path.toString().endsWith(".crt"))
                     .collect(Collectors.toUnmodifiableList());
         } catch (IOException e) {

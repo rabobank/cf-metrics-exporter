@@ -141,6 +141,8 @@ public class CfMetricsAgent {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutdown hook triggered, cancelling scheduled task.");
             scheduledAutoscaler.cancel(true);
+            scheduler.shutdownNow();
+            log.info("Shutdown complete.");
         }));
 
     }
