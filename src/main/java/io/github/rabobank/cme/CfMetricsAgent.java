@@ -15,6 +15,7 @@
  */
 package io.github.rabobank.cme;
 
+import io.github.rabobank.cme.cf.CustomMetricsSender;
 import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.domain.AutoScalerInfo;
 import io.github.rabobank.cme.domain.MtlsInfo;
@@ -25,6 +26,8 @@ import io.github.rabobank.cme.util.CertAndKeyProcessing;
 import java.lang.instrument.Instrumentation;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -37,6 +40,8 @@ import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 public class CfMetricsAgent {
 
     private static final Logger log = Logger.getLogger(CfMetricsAgent.class);
+
+    public static final String CUSTOM_THROUGHPUT_METRIC_NAME = "custom_throughput";
 
     public static void main(String[] args) {
 
@@ -101,7 +106,7 @@ public class CfMetricsAgent {
 
         log.info("Start CfMetricsAgent with arguments: %s", args);
         
-        // Create a single thread scheduler that runs every 10 seconds
+        // Create a single thread scheduler
         ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread thread = new Thread(r);
@@ -124,35 +129,45 @@ public class CfMetricsAgent {
                 break;
         }
 
+        List<MetricEmitter> emitters = new ArrayList<>();
+        createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
+        createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, emitters);
+
+        MetricsProcessor metricsProcessor = new MetricsProcessor(requestsPerSecond, emitters);
+
+        // Schedule sending of metrics
+        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(metricsProcessor::tick, 30, args.intervalSeconds(), TimeUnit.SECONDS);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Shutdown hook triggered, cancelling scheduled task.");
+            scheduledAutoscaler.cancel(true);
+        }));
+
+    }
+
+    private static void createAndAddOtlpExporter(String environmentVarName, ApplicationInfo applicationInfo, List<MetricEmitter> emitters) {
+        try {
+            // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
+            String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
+            URI otlpMetricsUri = parseUri(otlpUrl);
+            if (otlpMetricsUri != null) {
+                OtlpRpsExporter otlpExporter = new OtlpRpsExporter(otlpMetricsUri, applicationInfo, environmentVarName);
+                emitters.add(otlpExporter);
+                log.info("OTLP metrics export enabled to %s", otlpUrl);
+            }
+        } catch (Exception e) {
+            log.error("Cannot create OTLP exporter, will not emit metrics to OTLP endpoint.", e);
+        }
+    }
+
+    private static void createAndAddCustomMetricsSender(AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo, MtlsInfo mtlsInfo, List<MetricEmitter> emitters) {
         CustomMetricsSender customMetricsSender;
         try {
-            customMetricsSender = new CustomMetricsSender(requestsPerSecond, autoScalerInfo, applicationInfo, mtlsInfo);
+            customMetricsSender = new CustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo);
+            emitters.add(customMetricsSender);
+            log.info("Custom metrics sender enabled to %s", autoScalerInfo.isMtlsAuthConfigured() ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl());
         } catch (Exception e) {
-            log.error("Cannot create CustomMetricsSender, not starting CfMetricsAgent.", e);
-            return;
-        }
-
-        // Schedule App Autoscaler custom metrics sender
-        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(customMetricsSender::send, 30, args.intervalSeconds(), TimeUnit.SECONDS);
-
-        // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
-        String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
-        URI otlpMetricsUri = parseUri(otlpUrl);
-
-        if (otlpMetricsUri != null) {
-            log.info("OTLP metrics export enabled to %s", otlpUrl);
-            OtlpRpsExporter otlp = new OtlpRpsExporter(otlpMetricsUri, requestsPerSecond, applicationInfo, args.environmentVarName());
-            ScheduledFuture<?> scheduledOtlp = scheduler.scheduleAtFixedRate(otlp::send, 30, args.intervalSeconds(), TimeUnit.SECONDS);
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                log.info("Shutdown hook triggered, cancelling scheduled tasks.");
-                scheduledAutoscaler.cancel(true);
-                scheduledOtlp.cancel(true);
-            }));
-        } else {
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                log.info("Shutdown hook triggered, cancelling scheduled task.");
-                scheduledAutoscaler.cancel(true);
-            }));
+            log.error("Cannot create CustomMetricsSender, will not emit metrics to cloud foundry custom metrics endpoint.", e);
         }
     }
 

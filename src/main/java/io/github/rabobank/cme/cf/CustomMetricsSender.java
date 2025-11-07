@@ -13,8 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.rabobank.cme;
+package io.github.rabobank.cme.cf;
 
+import io.github.rabobank.cme.CfMetricsAgentException;
+import io.github.rabobank.cme.Logger;
+import io.github.rabobank.cme.MetricEmitter;
 import io.github.rabobank.cme.domain.ApplicationInfo;
 import io.github.rabobank.cme.domain.AutoScalerInfo;
 import io.github.rabobank.cme.domain.MtlsInfo;
@@ -26,27 +29,23 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 
-public class CustomMetricsSender {
+public class CustomMetricsSender implements MetricEmitter {
 
     private static final Logger log = Logger.getLogger(CustomMetricsSender.class);
-
-    public static final String CUSTOM_THROUGHPUT_METRIC_NAME = "custom_throughput";
 
     private final ApplicationInfo applicationInfo;
 
     private final HttpClient httpClient;
 
-    private final RequestsPerSecond requestsPerSecond;
-
     private final String url;
     private URI metricsUri;
     private String basicAuthHeader;
 
-    CustomMetricsSender(RequestsPerSecond requestsPerSecond, AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo) throws CfMetricsAgentException {
-        this(requestsPerSecond, autoScalerInfo, applicationInfo, null);
+    public CustomMetricsSender(AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo) throws CfMetricsAgentException {
+        this(autoScalerInfo, applicationInfo, null);
     }
 
-    CustomMetricsSender(RequestsPerSecond requestsPerSecond, AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo, MtlsInfo mtlsInfo) throws CfMetricsAgentException {
+    public CustomMetricsSender(AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo, MtlsInfo mtlsInfo) throws CfMetricsAgentException {
 
         if (mtlsInfo == null && !autoScalerInfo.isBasicAuthConfigured()) {
             throw new CfMetricsAgentException("No basic auth and no mTLS settings found.");
@@ -56,7 +55,6 @@ public class CustomMetricsSender {
             log.info("No basic auth settings found, will use mTLS instead.");
         }
 
-        this.requestsPerSecond = requestsPerSecond;
         this.applicationInfo = applicationInfo;
         boolean isMtlsEnabled = !autoScalerInfo.isBasicAuthConfigured() && autoScalerInfo.isMtlsAuthConfigured();
         this.url = isMtlsEnabled ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl();
@@ -65,19 +63,13 @@ public class CustomMetricsSender {
         this.basicAuthHeader = HttpUtil.encodeBasicAuthHeader(autoScalerInfo.getUsername(), autoScalerInfo.getPassword());
     }
 
-    public void send() {
+    @Override
+    public void emitMetric(String metricName, int rps) {
         try {
-            int rps = requestsPerSecond.rps();
-
-            if (rps == -1) {
-                log.info("Tomcat RPS not available, skip sending RPS.");
-                return;
-            }
-
-            log.info("Sending RPS: %d", rps);
+            log.debug("Sending RPS: %d", rps);
 
             HttpRequest.BodyPublisher publisher = HttpRequest.BodyPublishers.ofString(
-                    createPayload(rps, applicationInfo.getIndex()), StandardCharsets.UTF_8);
+                    createPayload(rps, applicationInfo.getIndex(), metricName), StandardCharsets.UTF_8);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .timeout(HttpUtil.HTTP_REQUEST_TIMEOUT)
@@ -94,12 +86,17 @@ public class CustomMetricsSender {
         }
     }
 
-    private String createPayload(int value, int index) {
+    @Override
+    public String name() {
+        return "CustomMetricsSender";
+    }
+
+    private String createPayload(int value, int index, String name) {
         return "{\n" +
                 "    \"instance_index\": " + index + ",\n" +
                 "    \"metrics\": [\n" +
                 "      {\n" +
-                "        \"name\": \"" + CUSTOM_THROUGHPUT_METRIC_NAME + "\",\n" +
+                "        \"name\": \"" + name + "\",\n" +
                 "        \"value\": " + value + ",\n" +
                 "        \"unit\": \"rps\"\n" +
                 "      }\n" +

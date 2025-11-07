@@ -27,17 +27,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OtlpRpsExporterTest {
 
-    static class FixedRps implements RequestsPerSecond {
-        private final int v;
-        FixedRps(int v) { this.v = v; }
-        public int rps() { return v; }
-    }
-
     @Test
     void payloadContainsResourceAttributes() throws Exception {
         // Given
         ApplicationInfo ai = new ApplicationInfo("app-id", 1, "app-name", "space", "org");
-        OtlpRpsExporter exp = new OtlpRpsExporter(URI.create("http://example/v1/metrics"), new FixedRps(42), ai, null);
+        OtlpRpsExporter exp = new OtlpRpsExporter(URI.create("http://example/v1/metrics"), ai, null);
         // When
         Method m = OtlpRpsExporter.class.getDeclaredMethod("buildOtlpJson", int.class, long.class);
         m.setAccessible(true);

@@ -16,8 +16,8 @@
 package io.github.rabobank.cme.otlp;
 
 import io.github.rabobank.cme.Logger;
+import io.github.rabobank.cme.MetricEmitter;
 import io.github.rabobank.cme.domain.ApplicationInfo;
-import io.github.rabobank.cme.rps.RequestsPerSecond;
 import io.github.rabobank.cme.util.HttpUtil;
 
 import java.net.URI;
@@ -30,35 +30,29 @@ import java.time.Instant;
  * OTLP HTTP JSON exporter for RPS metric.
  * Sends Gauge datapoint with resource attributes from Cloud Foundry.
  */
-public class OtlpRpsExporter {
+public class OtlpRpsExporter implements MetricEmitter {
 
     private static final Logger log = Logger.getLogger(OtlpRpsExporter.class);
 
     private final URI otlpMetricsUri; // e.g. http://host:4318/v1/metrics
-    private final RequestsPerSecond rps;
     private final ApplicationInfo app;
     private final String environmentTagKey;
     private final String environmentTagValue;
 
     private final HttpClient httpClient;
 
-    public OtlpRpsExporter(URI otlpMetricsUri, RequestsPerSecond rps, ApplicationInfo app, String environmentVarName) {
+    public OtlpRpsExporter(URI otlpMetricsUri, ApplicationInfo app, String environmentVarName) {
         this.otlpMetricsUri = otlpMetricsUri;
-        this.rps = rps;
         this.app = app;
         this.environmentTagKey = environmentVarName;
         this.environmentTagValue = environmentVarName == null ? null : System.getenv(environmentVarName);
         this.httpClient = HttpClient.newHttpClient(); // no basic auth or mTLS supported as of now
     }
 
-    public void send() {
+    @Override
+    public void emitMetric(String metricName, int currentRps) {
+        log.debug("Sending RPS: %d", currentRps);
         try {
-            int currentRps = rps.rps();
-            if (currentRps < 0) {
-                log.info("RPS not available, skipping OTLP send.");
-                return;
-            }
-
             String body = buildOtlpJson(currentRps, calculateCurrentTimeNanos());
             HttpRequest.BodyPublisher publisher = HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8);
 
@@ -76,18 +70,23 @@ public class OtlpRpsExporter {
         }
     }
 
+    @Override
+    public String name() {
+        return "OtlpRpsExporter";
+    }
+
     private static long calculateCurrentTimeNanos() {
         Instant now = Instant.now();
         return now.getEpochSecond() * 1_000_000_000 + now.getNano();
     }
 
-    String buildOtlpJson(int rpsValue, long timeUnixNano) {
+    private String buildOtlpJson(int rpsValue, long timeUnixNano) {
         StringBuilder resourceAttrs = new StringBuilder();
         // application, space, org, instance number
         appendAttr(resourceAttrs, "cf_application_name", app.getApplicationName());
         appendAttr(resourceAttrs, "cf_space_name", app.getSpaceName());
         appendAttr(resourceAttrs, "cf_organization_name", app.getOrganizationName());
-        appendAttr(resourceAttrs, "cf_instance_index", String.valueOf(app.getIndex())); // should this be of type int?
+        appendAttr(resourceAttrs, "cf_instance_index", String.valueOf(app.getIndex()));
         if (environmentTagKey != null && environmentTagValue != null) {
             appendAttr(resourceAttrs, "environment", environmentTagValue);
         }
@@ -115,7 +114,6 @@ public class OtlpRpsExporter {
 
     private static void appendAttr(StringBuilder sb, String key, String value) {
         if (value == null) return;
-        // OTLP JSON attribute
         sb.append("{\"key\":\"").append(escape(key)).append("\",\"value\":{\"stringValue\":\"")
           .append(escape(value)).append("\"}},");
     }
@@ -123,4 +121,5 @@ public class OtlpRpsExporter {
     private static String escape(String s) {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
+
 }
