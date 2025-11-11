@@ -192,7 +192,7 @@
                         </goals>
                         <configuration>
                             <minimizeJar>false</minimizeJar>
-                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <createDependencyReducedPom>true</createDependencyReducedPom>
                             <!-- Relocate ByteBuddy classes to avoid conflicts -->
                             <relocations>
                                 <relocation>
