@@ -1,5 +1,8 @@
 # Change log cf-metrics-exporter
 
+### v0.5.0: November 2025
+* Remove dependencies for shaded jars to avoid extra dependencies when cf-metrics-exporter is used via pom dependency
+
 ### v0.4.0: November 2025
 * Add sending RPS to Open Telemetry endpoint
 * Update dependencies
