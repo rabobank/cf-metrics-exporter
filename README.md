@@ -47,6 +47,18 @@ This is a random RPS generator, useful for testing purposes. It generates a rand
 
 Use `rspType=random` to enable this feature.
 
+## Metric Emitters
+
+There are three emitters:
+* `CustomMetricsSender`: Sends metrics to the cloud foundry custom metrics endpoint.
+* `OtlpRpsExporter`: Sends metrics to an OTLP endpoint.
+* `LogEmitter`: Logs metrics to the console.
+
+The `CustomMetricsSender` and `OtlpRpsExporter` are enabled based on the presence of the auto-scaler endpoint and the otlp endpoint 
+as defined in the standard environment variables `VCAP_SERVICES` and `MANAGEMENT_OTLP_METRICS_EXPORT_URL`.
+
+The `LogEmitter` is enabled based on the presence of the `enableLogEmitter` setting.
+
 ## Agent usage
 
 Copy the jar to the CF container and activate it via the `-javaagent` option.
@@ -62,11 +74,14 @@ with settings:
 ## Agent Settings
 
 The following settings are available:
-- `debug`: Enable debug logging.
+- `debug`: Enable debug logging. To enable just add `--debug` without value.
+- `trace`: Enable trace logging. To enable just add `--trace` without value.
 - `rpsType`: Type of RPS to use. Options are `spring-request` (default), `random`, `tomcat-mbean`.
 - `intervalSeconds`: Interval in seconds for sending metrics. Default is 10 seconds. Note: the average RPS is calculated for every interval.
 - `metricsEndpoint`: The endpoint to send metrics to. Not used currently, will pick it up from `VCAP_SERVICES`.
 - `environmentVarName`: The name of the environment variable to use to extract the value for the environment (e.g `CF_ENVIRONMENT` where for example `CF_ENVIROMENT=test` in the env settings). 
+- `enableLogEmitter`: Enable logging of emitted metrics. Default is false. To enable just add `--enableLogEmitter` without value.
+- `disableAgent`: Disable the agent completely. Default is false. To disable just add `--disableAgent` without value.
 
 Run with debug enabled to see stacktraces of exceptions.
 

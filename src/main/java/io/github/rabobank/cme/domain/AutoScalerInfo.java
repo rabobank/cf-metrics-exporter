@@ -21,7 +21,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class AutoScalerInfo {
+public final class AutoScalerInfo {
 
     private static final Logger log = Logger.getLogger(AutoScalerInfo.class);
 
@@ -74,7 +74,7 @@ public class AutoScalerInfo {
     }
 
     public boolean isBasicAuthConfigured () {
-        return (url != null && username != null && password != null);
+        return url != null && username != null && password != null;
     }
 
     public boolean isMtlsAuthConfigured () {

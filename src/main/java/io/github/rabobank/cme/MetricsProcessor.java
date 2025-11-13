@@ -37,11 +37,13 @@ public class MetricsProcessor {
             int currentRps = rsp.rps();
 
             if (currentRps < 0) {
-                log.info("RPS not available, skip send.");
+                log.debug("RPS not available, skip send.");
                 return;
             }
 
-            log.info("Sending RPS: " + currentRps);
+            if (log.isDebugEnabled()) {
+                log.debug("Sending RPS: " + currentRps);
+            }
 
             for (MetricEmitter emitter : metricEmitters) {
                 try {

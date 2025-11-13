@@ -19,6 +19,7 @@ import io.github.rabobank.cme.CfMetricsAgentException;
 import io.github.rabobank.cme.Logger;
 import io.github.rabobank.cme.domain.MtlsInfo;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
@@ -43,17 +44,24 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 
-public class CertAndKeyProcessing {
+public final class CertAndKeyProcessing {
 
     private static final Logger log = Logger.getLogger(CertAndKeyProcessing.class);
 
+    private static final Pattern LINEBREAKS = Pattern.compile("\\s|\\r|\\n");
+
     private CertAndKeyProcessing() {
         // do not create instances
+        // add only once
+        if (Security.getProvider("BC") == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
     }
 
     static SSLContext createSslContextFromPem(MtlsInfo mtlsInfo) throws CfMetricsAgentException {
@@ -145,12 +153,12 @@ public class CertAndKeyProcessing {
     }
 
     private static String cleanPemContent(String pemKey) {
-        return pemKey
+        String pemWithoutHeaders = pemKey
                 .replace("-----BEGIN PRIVATE KEY-----", "")
                 .replace("-----END PRIVATE KEY-----", "")
                 .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-                .replace("-----END RSA PRIVATE KEY-----", "")
-                .replaceAll("\\s|\\r|\\n", "");
+                .replace("-----END RSA PRIVATE KEY-----", "");
+        return LINEBREAKS.matcher(pemWithoutHeaders).replaceAll("");
     }
 
     private static PrivateKey loadPrivateKeyFromPem(String pemKey) throws CfMetricsAgentException {
@@ -163,10 +171,12 @@ public class CertAndKeyProcessing {
         if (pemKey.contains("BEGIN RSA PRIVATE KEY")) {
             // Traditional RSA key format
             try {
-                Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
-                PEMParser pemParser = new PEMParser(new StringReader(pemKey));
-                JcaPEMKeyConverter converter = new JcaPEMKeyConverter().setProvider("BC");
-                Object object = pemParser.readObject();
+                JcaPEMKeyConverter converter;
+                Object object;
+                try (PEMParser pemParser = new PEMParser(new StringReader(pemKey))) {
+                    converter = new JcaPEMKeyConverter().setProvider("BC");
+                    object = pemParser.readObject();
+                }
                 if (object instanceof PEMKeyPair) {
                     return converter.getPrivateKey(((PEMKeyPair) object).getPrivateKeyInfo());
                 } else {

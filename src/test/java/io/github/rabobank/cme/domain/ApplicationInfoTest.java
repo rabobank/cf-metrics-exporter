@@ -21,8 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ApplicationInfoTest {
 
-    private final String VCAP_APPLICATION = "{\"cf_api\":\"https://api.example.com\",\"limits\":{\"fds\":16384,\"mem\":2048,\"disk\":512},\"application_name\":\"my-app-demo\",\"application_uris\":[\"my-app-demo.apps.example.com\"],\"name\":\"my-app-demo\",\"space_name\":\"my-space\",\"space_id\":\"0dbe1d3d-space-id\",\"organization_id\":\"5124f9b4-org-id\",\"organization_name\":\"example-org\",\"uris\":[\"my-app-demo.apps.example.com\"],\"process_id\":\"6f452e74-application-id\",\"process_type\":\"web\",\"application_id\":\"6f452e74-application-id\",\"version\":\"7b6469c4-version\",\"application_version\":\"7b6469c4-app-version\"}";
-    private final String CF_INSTANCE_INDEX = "0";
+    private static final String VCAP_APPLICATION = "{\"cf_api\":\"https://api.example.com\",\"limits\":{\"fds\":16384,\"mem\":2048,\"disk\":512},\"application_name\":\"my-app-demo\",\"application_uris\":[\"my-app-demo.apps.example.com\"],\"name\":\"my-app-demo\",\"space_name\":\"my-space\",\"space_id\":\"0dbe1d3d-space-id\",\"organization_id\":\"5124f9b4-org-id\",\"organization_name\":\"example-org\",\"uris\":[\"my-app-demo.apps.example.com\"],\"process_id\":\"6f452e74-application-id\",\"process_type\":\"web\",\"application_id\":\"6f452e74-application-id\",\"version\":\"7b6469c4-version\",\"application_version\":\"7b6469c4-app-version\"}";
+    private static final String CF_INSTANCE_INDEX = "0";
 
     @Test
     void extractApplicationInfo() {

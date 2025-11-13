@@ -27,7 +27,7 @@ class CfMetricsAgentTest {
         CfMetricsAgent cfMetricsExporter = new CfMetricsAgent();
         String[] args = {"-d", "--metricsEndpoint", "https://example.com/test"};
         Arguments arguments = Arguments.parseArgs(args);
-        cfMetricsExporter.start(arguments);
+        cfMetricsExporter.start(arguments, () -> System.out.println("INITIALIZER CALLED"));
 
     }
 

@@ -61,7 +61,9 @@ public class TomcatMBeanRPS implements RequestsPerSecond {
             try {
                 if (globalRequestProcessorObjectName.get() == null) {
                     ObjectInstance instance = TomcatMBeanRPS.findTomcatGlobalRequestProcessor();
-                    if (instance == null) return -1;
+                    if (instance == null) {
+                        return -1;
+                    }
                     ObjectName objectName = instance.getObjectName();
                     TomcatMBeanRPS.log.info("Found MBean: %s", objectName);
                     globalRequestProcessorObjectName.set(objectName);

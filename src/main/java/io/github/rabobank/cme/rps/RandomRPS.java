@@ -38,6 +38,7 @@ public class RandomRPS implements RequestsPerSecond {
         this.extra = extra;
     }
 
+    @Override
     public int rps() {
         int rps = SECURE_RANDOM.nextInt(max - min + 1) + min;
         int currentMinute = java.time.LocalDateTime.now().getMinute();

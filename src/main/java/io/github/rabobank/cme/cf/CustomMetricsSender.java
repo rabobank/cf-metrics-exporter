@@ -75,7 +75,7 @@ public class CustomMetricsSender implements MetricEmitter {
 
             HttpUtil.sendRequest(httpClient, request);
 
-        } catch (Throwable e) {
+        } catch (Exception e) {
             log.error("error sending RPS", e);
         }
     }
