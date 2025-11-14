@@ -170,7 +170,7 @@ public class CfMetricsAgent {
         MetricEmitter emitter = new MetricEmitter() {
             @Override
             public void emitMetric(String metricName, int metricValue) {
-                log.info("Metric: %s, value: %d", metricName, metricValue);
+                log.info("metric: %s, value: %d", metricName, metricValue);
             }
 
             @Override
