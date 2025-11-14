@@ -19,8 +19,6 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.common.ConsoleNotifier;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
-import java.io.File;
-
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
 public class OtlpWiremockServer {

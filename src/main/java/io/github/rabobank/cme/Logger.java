@@ -17,7 +17,7 @@ package io.github.rabobank.cme;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class Logger {
+public final class Logger {
 
     private static final String LOG_LEVEL = System.getProperty("CF_METRICS_EXPORTER_LOG");
 
@@ -68,7 +68,9 @@ public class Logger {
     }
 
     private void println(String prefix, String message, Throwable throwable, Object... args) {
-        StringBuilder messageWithThrowable = new StringBuilder(message + " Error: " + throwable);
+        StringBuilder messageWithThrowable = new StringBuilder(256);
+        messageWithThrowable.append(message).append(" Error: ").append(throwable);
+
         Throwable cause = throwable.getCause();
         while (cause != null) {
             messageWithThrowable.append(" Caused by: ").append(cause);

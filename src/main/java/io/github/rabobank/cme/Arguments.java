@@ -23,16 +23,18 @@ import java.util.Queue;
 
 public class Arguments {
 
-    private String metricsEndpoint = null;
+    private String metricsEndpoint;
     private boolean debug = false;
     private boolean trace = false;
     private int intervalSeconds = 10;
     private RequestsPerSecondType rpsType = RequestsPerSecondType.SPRING_REQUEST;
-    private String environmentVarName = null;
+    private String environmentVarName;
+    private boolean enableLogEmitter = false;
+    private boolean disableAgent = false;
 
     public static String usage() {
         return "Usage: java CfMetricsExporter " +
-                "--debug,-d --trace --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random>,--environmentVarName,-e <ENV_VAR_NAME> ";
+                "--debug,-d --trace --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random>,--environmentVarName,-e <ENV_VAR_NAME>,--enableLogEmitter,--disableAgent";
     }
 
     public static void print(String message) {
@@ -85,6 +87,16 @@ public class Arguments {
                 continue;
             }
 
+            if (matches(arg, "--enableLogEmitter", "enableLogEmitter")) {
+                arguments.enableLogEmitter = true;
+                continue;
+            }
+
+            if (matches(arg, "--disableAgent", "disableAgent")) {
+                arguments.disableAgent = true;
+                continue;
+            }
+
             print("WARN: unknown option: " + arg);
 
         }
@@ -105,6 +117,8 @@ public class Arguments {
                 ", debug=" + debug +
                 ", trace=" + trace +
                 ", environmentVarName=" + environmentVarName +
+                ", enableLogEmitter=" + enableLogEmitter +
+                ", disableAgent=" + disableAgent +
                 '}';
     }
 
@@ -130,6 +144,14 @@ public class Arguments {
 
     public String environmentVarName() {
         return environmentVarName;
+    }
+
+    public boolean isEnableLogEmitter() {
+        return enableLogEmitter;
+    }
+
+    public boolean isDisableAgent() {
+        return disableAgent;
     }
 }
 

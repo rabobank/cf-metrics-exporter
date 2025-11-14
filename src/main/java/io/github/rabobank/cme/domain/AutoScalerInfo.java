@@ -21,7 +21,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class AutoScalerInfo {
+public final class AutoScalerInfo {
 
     private static final Logger log = Logger.getLogger(AutoScalerInfo.class);
 
@@ -30,11 +30,14 @@ public class AutoScalerInfo {
     private final String url;
     private final String urlMtls;
 
+    private final AutoScalerAuthType authType;
+
     private AutoScalerInfo(String url, String username, String password, String urlMtls) {
         this.url = url;
         this.username = username;
         this.password = password;
         this.urlMtls = urlMtls;
+        this.authType = determineAuthType(url, username, password, urlMtls);
     }
 
     public String getPassword() {
@@ -73,12 +76,31 @@ public class AutoScalerInfo {
         return Optional.empty();
     }
 
-    public boolean isBasicAuthConfigured () {
-        return (url != null && username != null && password != null);
+    private static boolean isBasicAuthConfigured (String url, String username, String password) {
+        return url != null && username != null && password != null;
     }
 
-    public boolean isMtlsAuthConfigured () {
+    private static boolean isMtlsAuthConfigured (String urlMtls) {
         return urlMtls != null;
+    }
+
+    public AutoScalerAuthType getAuthType() {
+        return authType;
+    }
+
+    private static AutoScalerAuthType determineAuthType(String url, String username, String password, String urlMtls) {
+        // prefer basic auth if complete
+        if (isBasicAuthConfigured(url, username, password)) {
+            return AutoScalerAuthType.BASIC;
+        } else if (isMtlsAuthConfigured(urlMtls)) {
+            return AutoScalerAuthType.MTLS;
+        } else {
+            return AutoScalerAuthType.NONE;
+        }
+    }
+
+    public enum AutoScalerAuthType {
+        BASIC, MTLS, NONE
     }
 
     @Override

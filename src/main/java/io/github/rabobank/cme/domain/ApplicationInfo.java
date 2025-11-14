@@ -25,6 +25,12 @@ public class ApplicationInfo {
     private final String applicationName;
     private final String spaceName;
     private final String organizationName;
+
+    public static final Pattern APPLICATION_ID_PATTERN = Pattern.compile("\"application_id\"\\s*:\\s*\"([^\"]+)\"");
+    public static final Pattern APPLICATION_NAME_PATTERN = Pattern.compile("\"application_name\"\\s*:\\s*\"([^\"]+)\"");
+    public static final Pattern SPACE_NAME_PATTERN = Pattern.compile("\"space_name\"\\s*:\\s*\"([^\"]+)\"");
+    public static final Pattern ORG_NAME_PATTERN = Pattern.compile("\"organization_name\"\\s*:\\s*\"([^\"]+)\"");
+
     public ApplicationInfo(String applicationId, int index, String applicationName, String spaceName, String organizationName) {
         this.applicationId = applicationId;
         this.index = index;
@@ -50,13 +56,8 @@ public class ApplicationInfo {
         String applicationName = findField(vcapApplicationJson, APPLICATION_NAME_PATTERN, "Application Name");
         String spaceName = findField(vcapApplicationJson, SPACE_NAME_PATTERN, "Space Name");
         String organizationName = findField(vcapApplicationJson, ORG_NAME_PATTERN, "Organization Name");
-        return new ApplicationInfo(applicationId, Integer.valueOf(cfInstanceIndex), applicationName, spaceName, organizationName);
+        return new ApplicationInfo(applicationId, Integer.parseInt(cfInstanceIndex), applicationName, spaceName, organizationName);
     }
-
-    public static final Pattern APPLICATION_ID_PATTERN = Pattern.compile("\"application_id\"\\s*:\\s*\"([^\"]+)\"");
-    public static final Pattern APPLICATION_NAME_PATTERN = Pattern.compile("\"application_name\"\\s*:\\s*\"([^\"]+)\"");
-    public static final Pattern SPACE_NAME_PATTERN = Pattern.compile("\"space_name\"\\s*:\\s*\"([^\"]+)\"");
-    public static final Pattern ORG_NAME_PATTERN = Pattern.compile("\"organization_name\"\\s*:\\s*\"([^\"]+)\"");
 
     private static String findField(String json, Pattern pattern, String fieldName) {
         Matcher matcher = pattern.matcher(json);

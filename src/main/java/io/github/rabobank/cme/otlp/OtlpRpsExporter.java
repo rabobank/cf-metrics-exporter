@@ -65,7 +65,7 @@ public class OtlpRpsExporter implements MetricEmitter {
 
             HttpUtil.sendRequest(httpClient, request);
 
-        } catch (Throwable t) {
+        } catch (Exception t) {
             log.error("Failed to send OTLP metrics", t);
         }
     }
@@ -113,7 +113,9 @@ public class OtlpRpsExporter implements MetricEmitter {
     }
 
     private static void appendAttr(StringBuilder sb, String key, String value) {
-        if (value == null) return;
+        if (value == null) {
+            return;
+        }
         sb.append("{\"key\":\"").append(escape(key)).append("\",\"value\":{\"stringValue\":\"")
           .append(escape(value)).append("\"}},");
     }

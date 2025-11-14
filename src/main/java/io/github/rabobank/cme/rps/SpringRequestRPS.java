@@ -83,7 +83,7 @@ public class SpringRequestRPS implements RequestsPerSecond {
 
     private static void printClassLoaderInfo(TypeDescription type, ClassLoader classLoader) {
         log.info("Transforming class: %s using classloader: %s",
-                type.getName(), (classLoader != null ? classLoader.getClass().getName() : "bootstrap"));
+                type.getName(), classLoader != null ? classLoader.getClass().getName() : "bootstrap");
     }
 
     @Override
@@ -94,7 +94,7 @@ public class SpringRequestRPS implements RequestsPerSecond {
         return currentRps;
     }
 
-    public static class HandlerMethodAdvice {
+    public static final class HandlerMethodAdvice {
         private HandlerMethodAdvice() {
             // Private constructor to prevent instantiation
         }
@@ -109,12 +109,12 @@ public class SpringRequestRPS implements RequestsPerSecond {
 
     // Method to reset and calculate RPS periodically
     private static void updateRpsMetrics() {
-        long currentTime = System.currentTimeMillis();
-        long previousTime = LAST_RESET_TIME.getAndSet(currentTime);
+        long currentTimeMillis = System.currentTimeMillis();
+        long previousTimeMillis = LAST_RESET_TIME.getAndSet(currentTimeMillis);
         int count = REQUEST_COUNTER.getAndSet(0);
 
         // Calculate seconds elapsed, minimum 1 to avoid division by zero
-        long secondsElapsed = Math.max(1, (currentTime - previousTime) / 1000);
+        long secondsElapsed = Math.max(1, (currentTimeMillis - previousTimeMillis) / 1000);
 
         // Report 1 RPS if there is at least 1 count, 0 if it is really 0 hits
         currentRps = (int) Math.ceil((double) count / secondsElapsed);

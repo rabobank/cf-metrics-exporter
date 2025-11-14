@@ -15,14 +15,7 @@
  */
 package io.github.rabobank.cme;
 
-public class CfMetricsAgentException extends Exception {
-
-    private static final long serialVersionUID = 34256216L;
-
-    public CfMetricsAgentException(String message) {
-        super(message);
-    }
-    public CfMetricsAgentException(String message, Throwable cause) {
-        super(message, cause);
-    }
+@FunctionalInterface
+public interface Initializer {
+    void initialize();
 }

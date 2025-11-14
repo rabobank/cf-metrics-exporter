@@ -34,14 +34,17 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static io.github.rabobank.cme.domain.ApplicationInfo.extractApplicationInfo;
+import static io.github.rabobank.cme.domain.AutoScalerInfo.AutoScalerAuthType.BASIC;
+import static io.github.rabobank.cme.domain.AutoScalerInfo.AutoScalerAuthType.MTLS;
 import static io.github.rabobank.cme.domain.AutoScalerInfo.extractMetricsServerInfo;
 import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 
 public class CfMetricsAgent {
 
-    private static final Logger log = Logger.getLogger(CfMetricsAgent.class);
-
     public static final String CUSTOM_THROUGHPUT_METRIC_NAME = "custom_throughput";
+
+    private static final Logger log = Logger.getLogger(CfMetricsAgent.class);
+    private static final Initializer NOP_INITIALIZER = () -> log.info("No special initialization required.");
 
     public static void main(String[] args) {
 
@@ -51,7 +54,7 @@ public class CfMetricsAgent {
 
         try {
             CfMetricsAgent cfMetricsExporter = new CfMetricsAgent();
-            cfMetricsExporter.start(arguments);
+            cfMetricsExporter.start(arguments, NOP_INITIALIZER);
 
             // Keep the main thread alive
             try {
@@ -75,88 +78,127 @@ public class CfMetricsAgent {
         }
     }
 
-    public void start(Arguments args) {
+    public void start(Arguments args, Initializer initializer) {
 
         enableLogging(args);
+
+        if (args.isDisableAgent()) {
+            log.info("Agent disabled via command line argument.");
+            return;
+        }
+
+        log.info("arguments: %s", args);
 
         String vcapApplicationJson = System.getenv("VCAP_APPLICATION");
         String vcapServicesJson = System.getenv("VCAP_SERVICES");
         String cfInstanceIndex = System.getenv("CF_INSTANCE_INDEX");
 
         if (vcapApplicationJson == null || vcapServicesJson == null || cfInstanceIndex == null) {
-            log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables, agent cannot continue.");
+            log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables: CfMetricsAgent will not be activated.");
             return;
         }
 
         ApplicationInfo applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);
         AutoScalerInfo autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
 
-        if (!(autoScalerInfo.isBasicAuthConfigured() || autoScalerInfo.isMtlsAuthConfigured())) {
-            log.error("Missing auto-scaler connection information for basic-auth and mtls, CfMetricsAgent cannot start.");
-            return;
-        }
-
         // can return invalid mtlsInfo when not all info is available
-        MtlsInfo mtlsInfo = autoScalerInfo.isBasicAuthConfigured() ? INVALID_MTLS_INFO : CertAndKeyProcessing.initializeMtlsInfo();
+        MtlsInfo mtlsInfo = autoScalerInfo.getAuthType() == MTLS
+                ? CertAndKeyProcessing.initializeMtlsInfo()
+                : INVALID_MTLS_INFO;
 
-        if (!autoScalerInfo.isBasicAuthConfigured() && (mtlsInfo == null || !mtlsInfo.isValid())) {
-            log.error("Autoscaler basic auth not available and mTLS settings are incomplete, CfMetricsAgent cannot start.");
-            return;
-        }
+        boolean isAutoscalerMtlsOk = autoScalerInfo.getAuthType() == MTLS && mtlsInfo.isValid();
+        boolean isAutoScalerAvailable = autoScalerInfo.getAuthType() == BASIC || isAutoscalerMtlsOk;
 
-        log.info("Start CfMetricsAgent with arguments: %s", args);
-        
-        // Create a single thread scheduler
-        ScheduledExecutorService scheduler =
-            Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread thread = new Thread(r);
-                thread.setName("cf-metrics-scheduler");
-                thread.setDaemon(true);
-                return thread;
-            });
-
-        RequestsPerSecond requestsPerSecond = null;
-
-        switch (args.type()) {
-            case TOMCAT_MBEAN:
-                requestsPerSecond = new TomcatMBeanRPS();
-                break;
-            case RANDOM:
-                requestsPerSecond = new RandomRPS(10, 100, 100);
-                break;
-            case SPRING_REQUEST:
-                requestsPerSecond = new SpringRequestRPS();
-                break;
-        }
+        // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
+        String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
+        URI otlpMetricsUri = parseUri(otlpUrl);
+        boolean isOtlpEnabled = otlpMetricsUri != null;
 
         List<MetricEmitter> emitters = new ArrayList<>();
-        createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
-        createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, emitters);
+        if (isAutoScalerAvailable) {
+            createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
+        }
+        else {
+            log.info("Auto-scaler basic-auth or mTLS configuration not found, no metrics to auto-scaler.");
+        }
+        if (isOtlpEnabled) {
+            createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, otlpMetricsUri, emitters);
+        }
+        else {
+            log.info("OTLP endpoint not found, no metrics to OTLP endpoint.");
+        }
+        if (args.isEnableLogEmitter()) {
+            createAndAddLogEmitter(emitters);
+        }
+        else {
+            log.info("Log emitter not enabled, no metrics to standard out log.");
+        }
 
-        MetricsProcessor metricsProcessor = new MetricsProcessor(requestsPerSecond, emitters);
+        if (emitters.isEmpty()) {
+            log.info("No metrics emitters configured, will not initialize agent.");
+        }
+        else {
+            initializer.initialize();
 
-        // Schedule sending of metrics
-        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(metricsProcessor::tick, 30, args.intervalSeconds(), TimeUnit.SECONDS);
+            // Create a single thread scheduler to send metrics
+            @SuppressWarnings("PMD.CloseResource") // no need to close this, see shutdown hook
+            ScheduledExecutorService scheduler =
+                    Executors.newSingleThreadScheduledExecutor(r -> {
+                        Thread thread = new Thread(r);
+                        thread.setName("cf-metrics-scheduler");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            log.info("Shutdown hook triggered, cancelling scheduled task.");
-            scheduledAutoscaler.cancel(true);
-            scheduler.shutdownNow();
-            log.info("Shutdown complete.");
-        }));
+            RequestsPerSecond requestsPerSecond = createRequestsPerSecond(args.type());
 
+            MetricsProcessor metricsProcessor = new MetricsProcessor(requestsPerSecond, emitters);
+
+            // Schedule sending of metrics
+            ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(metricsProcessor::tick, 30, args.intervalSeconds(), TimeUnit.SECONDS);
+
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                log.info("Shutdown hook triggered, cancelling scheduled task.");
+                scheduledAutoscaler.cancel(true);
+                scheduler.shutdownNow();
+                log.info("Shutdown complete.");
+            }));
+        }
     }
 
-    private static void createAndAddOtlpExporter(String environmentVarName, ApplicationInfo applicationInfo, List<MetricEmitter> emitters) {
-        try {
-            // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
-            String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
-            URI otlpMetricsUri = parseUri(otlpUrl);
-            if (otlpMetricsUri != null) {
-                OtlpRpsExporter otlpExporter = new OtlpRpsExporter(otlpMetricsUri, applicationInfo, environmentVarName);
-                emitters.add(otlpExporter);
-                log.info("OTLP metrics export enabled to %s", otlpUrl);
+    private void createAndAddLogEmitter(List<MetricEmitter> emitters) {
+        MetricEmitter emitter = new MetricEmitter() {
+            @Override
+            public void emitMetric(String metricName, int metricValue) {
+                log.info("metric: %s, value: %d", metricName, metricValue);
             }
+
+            @Override
+            public String name() {
+                return "log-emitter";
+            }
+        };
+        emitters.add(emitter);
+    }
+
+    private static RequestsPerSecond createRequestsPerSecond(RequestsPerSecondType type) {
+        switch (type) {
+            case TOMCAT_MBEAN:
+                return new TomcatMBeanRPS();
+            case RANDOM:
+                return new RandomRPS(10, 100, 100);
+            case SPRING_REQUEST:
+                return new SpringRequestRPS();
+            default:
+                throw new IllegalArgumentException("Unsupported RequestsPerSecondType: " + type);
+        }
+    }
+
+    private static void createAndAddOtlpExporter(String environmentVarName, ApplicationInfo applicationInfo, URI otlpMetricsUri, List<MetricEmitter> emitters) {
+        try {
+            OtlpRpsExporter otlpExporter = new OtlpRpsExporter(otlpMetricsUri, applicationInfo, environmentVarName);
+            emitters.add(otlpExporter);
+            log.info("OTLP metrics export enabled to %s", otlpMetricsUri);
         } catch (Exception e) {
             log.error("Cannot create OTLP exporter, will not emit metrics to OTLP endpoint.", e);
         }
@@ -167,7 +209,7 @@ public class CfMetricsAgent {
         try {
             customMetricsSender = new CustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo);
             emitters.add(customMetricsSender);
-            log.info("Custom metrics sender enabled to %s", autoScalerInfo.isMtlsAuthConfigured() ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl());
+            log.info("Custom metrics sender enabled to %s", autoScalerInfo.getAuthType() == BASIC ? autoScalerInfo.getUrl() : autoScalerInfo.getUrlMtls());
         } catch (Exception e) {
             log.error("Cannot create CustomMetricsSender, will not emit metrics to cloud foundry custom metrics endpoint.", e);
         }
@@ -193,27 +235,36 @@ public class CfMetricsAgent {
     }
 
     public static void premain(String args, Instrumentation instrumentation){
-        log.info("premain: %s", (args == null ? "<no args>" : args));
+        log.debug("premain: %s", args == null ? "<no args>" : args);
 
         try {
             CfMetricsAgent cfMetricsExporter = new CfMetricsAgent();
             String[] argsArray = splitAgentArgs(args);
 
             Arguments parsedArguments = Arguments.parseArgs(argsArray);
-            if (parsedArguments.type() == RequestsPerSecondType.SPRING_REQUEST) {
-                log.info("Spring instrumentation enabled");
-                SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
-            } else {
-                log.info("Spring instrumentation not enabled");
-            }
-            cfMetricsExporter.start(parsedArguments);
+
+            Initializer initializer = createInitializer(parsedArguments.type(), instrumentation);
+
+            cfMetricsExporter.start(parsedArguments, initializer);
+
         } catch (Exception e) {
             log.error("Error starting CfMetricsAgent.", e);
         }
     }
 
+    private static Initializer createInitializer(RequestsPerSecondType type, Instrumentation instrumentation) {
+        if (type == RequestsPerSecondType.SPRING_REQUEST) {
+            return () -> {
+                log.info("Spring instrumentation enabled");
+                SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
+            };
+        }
+        return () -> log.info("Spring instrumentation not enabled");
+    }
+
+    @SuppressWarnings("PMD.AvoidImplicitlyRecompilingRegex") // is one time call only
     static String[] splitAgentArgs(String args) {
-        return args == null ? new String[]{} : args.split("[=,]"); //NOPMD - suppressed AvoidImplicitlyRecompilingRegex - one time call
+        return args == null ? new String[]{} : args.split("[=,]");
     }
 
     public static void agentmain(String args, Instrumentation instrumentation) {

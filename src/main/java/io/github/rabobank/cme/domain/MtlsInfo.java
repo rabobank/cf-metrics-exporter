@@ -23,7 +23,7 @@ import java.util.Optional;
 
 import static java.nio.file.Files.readAllBytes;
 
-public class MtlsInfo {
+public final class MtlsInfo {
 
     private static final Logger log = Logger.getLogger(MtlsInfo.class);
 
@@ -57,7 +57,7 @@ public class MtlsInfo {
     }
 
     private static Optional<String> readFiles(List<Path> caFiles) {
-        StringBuilder ca = new StringBuilder();
+        StringBuilder ca = new StringBuilder(128);
         for (Path caFile : caFiles) {
             readFile(caFile).ifPresent(ca::append);
         }
@@ -68,6 +68,7 @@ public class MtlsInfo {
         return readFile(fileName, "UTF-8");
     }
 
+    @SuppressWarnings("PMD.AvoidLoadingAllFromFile") // need all bytes anyway
     private static Optional<String> readFile(Path fileName, String encoding) {
         try {
             return Optional.of(new String(readAllBytes(fileName), encoding));
