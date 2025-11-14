@@ -92,7 +92,7 @@ The following environment variables are used from within the cloud foundry conta
 - `VCAP_SERVICES`
 - `CF_INSTANCE_INDEX`
 
-The `VCAP_SERVICES` should contain the custom metrics endpoint and basic auth credentials. mTLS is not supported.
+The `VCAP_SERVICES` should contain the custom metrics endpoint and basic auth credentials or mTLS endpoint.
 
 There is a `src/test/resources/test.env` file that can be used to set these variables for local testing.
 The `src/test/resources/test-missing-basic-auth.env` can be used to test with mTLS instead of basic auth.
