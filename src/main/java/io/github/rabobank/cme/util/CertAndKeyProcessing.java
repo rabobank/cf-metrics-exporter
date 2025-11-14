@@ -247,7 +247,7 @@ public final class CertAndKeyProcessing {
         List<Path> crtFiles = listAllCrtFiles(cfSystemCertPath);
 
         if (crtFiles.isEmpty()) {
-            log.error("No CA certificates (*.crt files) found in %s, CfMetricsAgent cannot start.", cfSystemCertPath);
+            log.error("No CA certificates (*.crt files) found in %s.", cfSystemCertPath);
             return INVALID_MTLS_INFO;
         }
 

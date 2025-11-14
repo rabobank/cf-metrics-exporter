@@ -81,18 +81,18 @@ public class CfMetricsAgent {
         enableLogging(args);
 
         if (args.isDisableAgent()) {
-            log.info("CfMetricsAgent disabled by command line argument.");
+            log.info("Agent disabled via command line argument.");
             return;
         }
 
-        log.info("Start CfMetricsAgent with arguments: %s", args);
+        log.info("arguments: %s", args);
 
         String vcapApplicationJson = System.getenv("VCAP_APPLICATION");
         String vcapServicesJson = System.getenv("VCAP_SERVICES");
         String cfInstanceIndex = System.getenv("CF_INSTANCE_INDEX");
 
         if (vcapApplicationJson == null || vcapServicesJson == null || cfInstanceIndex == null) {
-            log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables: CfMetricsAgent cannot be activated.");
+            log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables: CfMetricsAgent will not be activated.");
             return;
         }
 
@@ -100,30 +100,42 @@ public class CfMetricsAgent {
         AutoScalerInfo autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
 
         // can return invalid mtlsInfo when not all info is available
-        MtlsInfo mtlsInfo = autoScalerInfo.isBasicAuthConfigured() ? INVALID_MTLS_INFO : CertAndKeyProcessing.initializeMtlsInfo();
+        MtlsInfo mtlsInfo = !autoScalerInfo.isMtlsAuthConfigured()
+                ? INVALID_MTLS_INFO
+                : CertAndKeyProcessing.initializeMtlsInfo();
 
         boolean isAutoscalerMtlsOk = autoScalerInfo.isMtlsAuthConfigured() && mtlsInfo.isValid();
-
-        if (!isAutoscalerMtlsOk) {
-            log.info("Autoscaler mTLS settings are incomplete, CfMetricsAgent cannot connect to autoscaler.");
-        }
-
-        boolean isAutoScalerAvailable = autoScalerInfo.isBasicAuthConfigured() || (autoScalerInfo.isMtlsAuthConfigured() && isAutoscalerMtlsOk);
+        boolean isAutoScalerAvailable = autoScalerInfo.isBasicAuthConfigured() || isAutoscalerMtlsOk;
 
         // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
         String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
         URI otlpMetricsUri = parseUri(otlpUrl);
         boolean isOtlpEnabled = otlpMetricsUri != null;
 
-        if (!isAutoScalerAvailable) {
-            log.info("Missing auto-scaler connection information for basic-auth and mtls, CfMetricsAgent will not send metrics to autoscaler.");
+        List<MetricEmitter> emitters = new ArrayList<>();
+        if (isAutoScalerAvailable) {
+            createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
         }
-        if (!isOtlpEnabled) {
-            log.info("No valid OTLP endpoint found: CfMetricsAgent will not send metrics to OTLP endpoint.");
+        else {
+            log.info("Auto-scaler basic-auth or mTLS configuration not found, no metrics to auto-scaler.");
+        }
+        if (isOtlpEnabled) {
+            createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, otlpMetricsUri, emitters);
+        }
+        else {
+            log.info("OTLP endpoint not found, no metrics to OTLP endpoint.");
+        }
+        if (args.isEnableLogEmitter()) {
+            createAndAddLogEmitter(emitters);
+        }
+        else {
+            log.info("Log emitter not enabled, no metrics to standard out log.");
         }
 
-        if (isAutoScalerAvailable || isOtlpEnabled) {
-
+        if (emitters.isEmpty()) {
+            log.info("No metrics emitters configured, will not initialize agent.");
+        }
+        else {
             initializer.initialize();
 
             // Create a single thread scheduler to send metrics
@@ -137,17 +149,6 @@ public class CfMetricsAgent {
                     });
 
             RequestsPerSecond requestsPerSecond = createRequestsPerSecond(args.type());
-
-            List<MetricEmitter> emitters = new ArrayList<>();
-            if (isAutoScalerAvailable) {
-                createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
-            }
-            if (isOtlpEnabled) {
-                createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, otlpMetricsUri, emitters);
-            }
-            if (args.isEnableLogEmitter()) {
-                createAndAddLogEmitter(emitters);
-            }
 
             MetricsProcessor metricsProcessor = new MetricsProcessor(requestsPerSecond, emitters);
 
@@ -232,7 +233,7 @@ public class CfMetricsAgent {
     }
 
     public static void premain(String args, Instrumentation instrumentation){
-        log.info("premain: %s", args == null ? "<no args>" : args);
+        log.debug("premain: %s", args == null ? "<no args>" : args);
 
         try {
             CfMetricsAgent cfMetricsExporter = new CfMetricsAgent();
