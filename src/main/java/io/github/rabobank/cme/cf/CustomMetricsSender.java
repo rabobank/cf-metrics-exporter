@@ -28,6 +28,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 
+import static io.github.rabobank.cme.domain.AutoScalerInfo.AutoScalerAuthType.MTLS;
+import static io.github.rabobank.cme.domain.AutoScalerInfo.AutoScalerAuthType.NONE;
+
 public class CustomMetricsSender implements MetricEmitter {
 
     private static final Logger log = Logger.getLogger(CustomMetricsSender.class);
@@ -41,20 +44,23 @@ public class CustomMetricsSender implements MetricEmitter {
 
     public CustomMetricsSender(AutoScalerInfo autoScalerInfo, ApplicationInfo applicationInfo, MtlsInfo mtlsInfo) throws CfMetricsAgentException {
 
-        if (mtlsInfo == null && !autoScalerInfo.isBasicAuthConfigured()) {
-            throw new CfMetricsAgentException("No basic auth and no mTLS settings found.");
+        if (autoScalerInfo.getAuthType() == NONE) {
+            throw new CfMetricsAgentException("No auto scaler authentication available.");
         }
 
-        if (!autoScalerInfo.isBasicAuthConfigured()) {
-            log.info("No basic auth settings found, will use mTLS instead.");
+        if (mtlsInfo == null && autoScalerInfo.getAuthType() == MTLS) {
+            throw new CfMetricsAgentException("mTLS authentication selected, but no mTLS settings found.");
         }
 
         this.applicationInfo = applicationInfo;
-        boolean isMtlsEnabled = !autoScalerInfo.isBasicAuthConfigured() && autoScalerInfo.isMtlsAuthConfigured();
+
+        boolean isMtlsEnabled = autoScalerInfo.getAuthType() == MTLS;
+
         String url = isMtlsEnabled ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl();
-        this.httpClient = isMtlsEnabled ? HttpUtil.createHttpClientMtls(mtlsInfo) : HttpUtil.createHttpClient();
         this.metricsUri = URI.create(url + "/v1/apps/" + applicationInfo.getApplicationId() + "/metrics");
-        this.basicAuthHeader = HttpUtil.encodeBasicAuthHeader(autoScalerInfo.getUsername(), autoScalerInfo.getPassword());
+
+        this.httpClient = isMtlsEnabled ? HttpUtil.createHttpClientMtls(mtlsInfo) : HttpUtil.createHttpClient();
+        this.basicAuthHeader = isMtlsEnabled ? null : HttpUtil.encodeBasicAuthHeader(autoScalerInfo.getUsername(), autoScalerInfo.getPassword());
     }
 
     @Override
@@ -65,15 +71,17 @@ public class CustomMetricsSender implements MetricEmitter {
             HttpRequest.BodyPublisher publisher = HttpRequest.BodyPublishers.ofString(
                     createPayload(rps, applicationInfo.getIndex(), metricName), StandardCharsets.UTF_8);
 
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .timeout(HttpUtil.HTTP_REQUEST_TIMEOUT)
                     .uri(metricsUri)
                     .header("Content-Type", "application/json")
-                    .header("Authorization", basicAuthHeader)
-                    .POST(publisher)
-                    .build();
+                    .POST(publisher);
 
-            HttpUtil.sendRequest(httpClient, request);
+            if (basicAuthHeader != null) {
+                requestBuilder.header("Authorization", basicAuthHeader);
+            }
+
+            HttpUtil.sendRequest(httpClient, requestBuilder.build());
 
         } catch (Exception e) {
             log.error("error sending RPS", e);

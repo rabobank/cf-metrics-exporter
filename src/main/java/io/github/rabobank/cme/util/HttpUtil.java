@@ -46,10 +46,10 @@ public final class HttpUtil {
                 log.trace("Response Status Code: %d Body: %s", response.statusCode(), body.isBlank() ? "<empty>" : body);
             }
         } catch (IOException e) {
-            log.error("cannot reach server: %s", e, request.uri());
+            log.error("CfMetricsAgent cannot reach: %s", e, request.uri());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("agent interrupted", e);
+            log.error("CfMetricsAgent interrupted", e);
         }
     }
 
@@ -62,7 +62,7 @@ public final class HttpUtil {
     public static HttpClient createHttpClientMtls(MtlsInfo mtlsInfo) throws CfMetricsAgentException {
 
         if (mtlsInfo == null || !mtlsInfo.isValid()) {
-            throw new CfMetricsAgentException("Mtls settings are not present or not valid.");
+            throw new CfMetricsAgentException("mTLS settings are not present or not valid.");
         }
 
         // Create SSLContext with the provided PEM data

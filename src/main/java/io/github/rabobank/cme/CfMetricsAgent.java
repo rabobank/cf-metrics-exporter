@@ -34,6 +34,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static io.github.rabobank.cme.domain.ApplicationInfo.extractApplicationInfo;
+import static io.github.rabobank.cme.domain.AutoScalerInfo.AutoScalerAuthType.BASIC;
+import static io.github.rabobank.cme.domain.AutoScalerInfo.AutoScalerAuthType.MTLS;
 import static io.github.rabobank.cme.domain.AutoScalerInfo.extractMetricsServerInfo;
 import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 
@@ -100,12 +102,12 @@ public class CfMetricsAgent {
         AutoScalerInfo autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
 
         // can return invalid mtlsInfo when not all info is available
-        MtlsInfo mtlsInfo = !autoScalerInfo.isMtlsAuthConfigured()
-                ? INVALID_MTLS_INFO
-                : CertAndKeyProcessing.initializeMtlsInfo();
+        MtlsInfo mtlsInfo = autoScalerInfo.getAuthType() == MTLS
+                ? CertAndKeyProcessing.initializeMtlsInfo()
+                : INVALID_MTLS_INFO;
 
-        boolean isAutoscalerMtlsOk = autoScalerInfo.isMtlsAuthConfigured() && mtlsInfo.isValid();
-        boolean isAutoScalerAvailable = autoScalerInfo.isBasicAuthConfigured() || isAutoscalerMtlsOk;
+        boolean isAutoscalerMtlsOk = autoScalerInfo.getAuthType() == MTLS && mtlsInfo.isValid();
+        boolean isAutoScalerAvailable = autoScalerInfo.getAuthType() == BASIC || isAutoscalerMtlsOk;
 
         // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
         String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
@@ -207,7 +209,7 @@ public class CfMetricsAgent {
         try {
             customMetricsSender = new CustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo);
             emitters.add(customMetricsSender);
-            log.info("Custom metrics sender enabled to %s", autoScalerInfo.isMtlsAuthConfigured() ? autoScalerInfo.getUrlMtls() : autoScalerInfo.getUrl());
+            log.info("Custom metrics sender enabled to %s", autoScalerInfo.getAuthType() == BASIC ? autoScalerInfo.getUrl() : autoScalerInfo.getUrlMtls());
         } catch (Exception e) {
             log.error("Cannot create CustomMetricsSender, will not emit metrics to cloud foundry custom metrics endpoint.", e);
         }
