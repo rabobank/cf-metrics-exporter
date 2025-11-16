@@ -178,7 +178,11 @@ keytool -importcert \
 openssl x509 -inform DER -in client.crt -out client.pem
 
 # Export the private key from client.p12 without password protection and without attributes
+# Note: 'openssl rsa' outputs a traditional PKCS#1 (BEGIN RSA PRIVATE KEY) key
 openssl pkcs12 -in client.p12 -nocerts -nodes -passin pass:$PASSWORD | openssl rsa -out client-key.pem
+
+# Also provide the PKCS#1 key with an explicit filename for clarity
+cp client-key.pem client-key-pkcs1.pem
 
 section "Creating Server Truststore"
 # Create a new truststore and import the CA certificate
@@ -212,6 +216,9 @@ echo "- server.p12: Server keystore with private key and certificate"
 echo "- server.crt: Server public certificate"
 echo "- client.p12: Client keystore with private key and certificate"
 echo "- client.crt: Client public certificate"
+echo "- client.pem: Client public certificate (PEM)"
+echo "- client-key.pem: Client private key (PKCS#1 RSA)"
+echo "- client-key-pkcs1.pem: Client private key (explicit PKCS#1 RSA filename)"
 echo "- server-truststore.p12: Server truststore with CA certificate"
 echo "- client-truststore.p12: Client truststore with CA certificate"
 echo ""

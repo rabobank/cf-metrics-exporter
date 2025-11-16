@@ -24,11 +24,10 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.security.Security;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.Security;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -81,9 +80,15 @@ class CustomMetricsSenderMtlsTest {
         System.out.println("[DEBUG_LOG] BC provider present before test: " + (Security.getProvider("BC") != null));
         // Build MtlsInfo from generated PEM files
         Path base = Path.of("target", "generated-certs");
-        Path clientKey = base.resolve("client-key.pem");
+       // Ensure we test the PKCS#1 code path explicitly by generating a PKCS#1 RSA private key PEM
+       Path clientKey = base.resolve("client-key-pkcs1.pem");
         Path clientPem = base.resolve("client.pem");
         Path cacertsDir = base.resolve("cacerts");
+
+       // Ensure we're testing with a PKCS#1 RSA key (BEGIN RSA PRIVATE KEY)
+       String keyPem = Files.readString(clientKey);
+        System.out.println("[DEBUG_LOG] First line of client-key.pem: " + keyPem.lines().findFirst().orElse("<empty>"));
+        assertTrue(keyPem.contains("BEGIN RSA PRIVATE KEY"), "Expected client-key.pem to be PKCS#1 (BEGIN RSA PRIVATE KEY). If not, the test setup script may have changed.");
 
         List<Path> caFiles;
         try {
@@ -115,6 +120,6 @@ class CustomMetricsSenderMtlsTest {
         sender.emitMetric("custom_rps", 42);
 
         // Verify WireMock received the expected POST
-        autoscalerWireMock.verify(postRequestedFor(urlEqualTo("/v1/apps/6f452e74-application-id/metrics")));
-    }
+         autoscalerWireMock.verify(postRequestedFor(urlEqualTo("/v1/apps/6f452e74-application-id/metrics")));
+     }
 }

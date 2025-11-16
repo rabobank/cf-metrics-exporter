@@ -56,12 +56,16 @@ public final class CertAndKeyProcessing {
 
     private static final Pattern LINEBREAKS = Pattern.compile("\\s|\\r|\\n");
 
-    private CertAndKeyProcessing() {
-        // do not create instances
-        // add only once
+    static {
+        // Ensure BouncyCastle provider is registered once when the class is loaded
         if (Security.getProvider("BC") == null) {
+            log.info("Registering BouncyCastle security provider for mTLS using PKCS#1 keys");
             Security.addProvider(new BouncyCastleProvider());
         }
+    }
+
+    private CertAndKeyProcessing() {
+        // do not create instances
     }
 
     static SSLContext createSslContextFromPem(MtlsInfo mtlsInfo) throws CfMetricsAgentException {
