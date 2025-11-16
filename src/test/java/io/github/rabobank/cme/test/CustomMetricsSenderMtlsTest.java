@@ -25,11 +25,18 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.FileWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Security;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.security.KeyStore;
+import java.security.Key;
+import java.security.interfaces.RSAPrivateCrtKey;
+import org.bouncycastle.asn1.pkcs.RSAPrivateKey;
+import org.bouncycastle.util.io.pem.PemObject;
+import org.bouncycastle.util.io.pem.PemWriter;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
@@ -87,8 +94,8 @@ class CustomMetricsSenderMtlsTest {
 
        // Ensure we're testing with a PKCS#1 RSA key (BEGIN RSA PRIVATE KEY)
        String keyPem = Files.readString(clientKey);
-        System.out.println("[DEBUG_LOG] First line of client-key.pem: " + keyPem.lines().findFirst().orElse("<empty>"));
-        assertTrue(keyPem.contains("BEGIN RSA PRIVATE KEY"), "Expected client-key.pem to be PKCS#1 (BEGIN RSA PRIVATE KEY). If not, the test setup script may have changed.");
+        System.out.println("[DEBUG_LOG] First line of client-key-pkcs1.pem: " + keyPem.lines().findFirst().orElse("<empty>"));
+        assertTrue(keyPem.contains("BEGIN RSA PRIVATE KEY"), "Expected client-key-pkcs1.pem to be PKCS#1 (BEGIN RSA PRIVATE KEY). If not, the test setup script may have changed.");
 
         List<Path> caFiles;
         try {
@@ -122,4 +129,5 @@ class CustomMetricsSenderMtlsTest {
         // Verify WireMock received the expected POST
          autoscalerWireMock.verify(postRequestedFor(urlEqualTo("/v1/apps/6f452e74-application-id/metrics")));
      }
+
 }
