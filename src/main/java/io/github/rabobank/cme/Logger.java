@@ -64,7 +64,7 @@ public final class Logger {
         if (args.length > 0) {
             message = String.format(message, args);
         }
-        System.out.println(prefix + " " + className + ": " + message);
+        System.out.println(prefix + " cf-metrics-exporter:" + className + ": " + message);
     }
 
     private void println(String prefix, String message, Throwable throwable, Object... args) {
