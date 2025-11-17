@@ -1,5 +1,8 @@
 # Change log cf-metrics-exporter
 
+### v0.6.1: November 2025
+* Fix issue with mTLS key in PCKS1 format (PEMException: no such provider: BC)
+
 ### v0.6.0: November 2025
 * Activate agent when only OTLP endpoint is configured or only log emitter is enabled
 * Added Log emitter, which logs metrics to stdout, activate with `enableLogEmitter` agent option
