@@ -178,7 +178,7 @@ keytool -importcert \
 openssl x509 -inform DER -in client.crt -out client.pem
 
 # Export the private key from client.p12 without password protection
-# Generate both PKCS#8 and PKCS#1 variants explicitly to avoid OpenSSL version differences
+# Generate both PKCS#8 and PKCS#1 variants explicitly to check version differences in tests
 
 # PKCS#8 (BEGIN PRIVATE KEY)
 openssl pkcs12 -in client.p12 -nocerts -nodes -passin pass:$PASSWORD | \
