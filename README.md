@@ -29,7 +29,7 @@ Works for all Spring Boot servers:
 * Tomcat (also with virtual threads)
 * Undertow
 
-Use `rspType=spring-request` to enable this feature (default).
+Use `rpsType=spring-request` to enable this feature (default).
 
 ### Tomcat RPS
 
@@ -39,13 +39,13 @@ For Tomcat use the JMX MBean and Attribute:
 
 Needs explicit application setting: `server.tomcat.mbeanregistry.enabled=true`
 
-Use `rspType=tomcat-mbean` to enable this feature.
+Use `rpsType=tomcat-mbean` to enable this feature.
 
 ### Random RPS
 
 This is a random RPS generator, useful for testing purposes. It generates a random number of requests per second.
 
-Use `rspType=random` to enable this feature.
+Use `rpsType=random` to enable this feature.
 
 ## Metric Emitters
 
@@ -78,10 +78,19 @@ The following settings are available:
 - `trace`: Enable trace logging. To enable just add `--trace` without value.
 - `rpsType`: Type of RPS to use. Options are `spring-request` (default), `random`, `tomcat-mbean`.
 - `intervalSeconds`: Interval in seconds for sending metrics. Default is 10 seconds. Note: the average RPS is calculated for every interval.
-- `metricsEndpoint`: The endpoint to send metrics to. Not used currently, will pick it up from `VCAP_SERVICES`.
+- `metricsEndpoint`: Override the App Autoscaler metrics base URL. When provided, it replaces the URL for the selected auth mode (BASIC or mTLS), instead of the value from `VCAP_SERVICES`.
 - `environmentVarName`: The name of the environment variable to use to extract the value for the environment (e.g `CF_ENVIRONMENT` where for example `CF_ENVIROMENT=test` in the env settings). 
 - `enableLogEmitter`: Enable logging of emitted metrics. Default is false. To enable just add `--enableLogEmitter` without value.
 - `disableAgent`: Disable the agent completely. Default is false. To disable just add `--disableAgent` without value.
+
+Authentication overrides (optional):
+- `basicUsername` and `basicPassword`: Use BASIC authentication to the App Autoscaler. When both are provided, BASIC auth is used regardless of what `VCAP_SERVICES` reports. `metricsEndpoint` (when set) will be applied to the BASIC URL.
+- `cfInstanceKey`, `cfInstanceCert`, `cfSystemCertPath`: Use mTLS with explicit file locations. These flags mirror the Cloud Foundry env vars `CF_INSTANCE_KEY`, `CF_INSTANCE_CERT`, and `CF_SYSTEM_CERT_PATH`. When all three are provided, mTLS is used. `metricsEndpoint` (when set) will be applied to the mTLS URL.
+
+Precedence:
+1. BASIC auth overrides (username/password)
+2. mTLS overrides (cfInstanceKey/cert/systemCertPath)
+3. Defaults from `VCAP_SERVICES` and CF env vars
 
 Run with debug enabled to see stacktraces of exceptions.
 
@@ -91,6 +100,7 @@ The following environment variables are used from within the cloud foundry conta
 - `VCAP_APPLICATION`
 - `VCAP_SERVICES`
 - `CF_INSTANCE_INDEX`
+- For mTLS from the platform: `CF_INSTANCE_KEY`, `CF_INSTANCE_CERT`, `CF_SYSTEM_CERT_PATH`
 
 The `VCAP_SERVICES` should contain the custom metrics endpoint and basic auth credentials or mTLS endpoint.
 
@@ -101,7 +111,7 @@ Use via `source src/test/resources/test.env` in your terminal or add as env file
 
 # Open Telemetry
 
-The agent will send the RPS metric to an Open Telemetry endpoint if the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable is set.
+The agent will send the RPS metric to an Open Telemetry endpoint if the `MANAGEMENT_OTLP_METRICS_EXPORT_URL` environment variable is set.
 It only supports the http protocol and no authentication as of yet. The metric name is `custom_throughput`. The unit is `1/s`.
 The attributes are:    
 - `cf_application_name`
