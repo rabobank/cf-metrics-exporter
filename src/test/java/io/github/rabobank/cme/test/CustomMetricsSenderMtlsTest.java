@@ -25,18 +25,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.io.FileWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Security;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.security.KeyStore;
-import java.security.Key;
-import java.security.interfaces.RSAPrivateCrtKey;
-import org.bouncycastle.asn1.pkcs.RSAPrivateKey;
-import org.bouncycastle.util.io.pem.PemObject;
-import org.bouncycastle.util.io.pem.PemWriter;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;

@@ -1,5 +1,10 @@
 # Change log cf-metrics-exporter
 
+### v0.7.0: November 2025
+* added PKCS#1 DER parser (parsePkcs1PrivateKey and DerReader in CertAndKeyProcessing) based 
+on RFC 3447 and DER (X.690)
+* removed BouncyCastle dependency
+
 ### v0.6.2: November 2025
 * Fix issue with mTLS key in PCKS1 format (PEMException: no such provider: BC)
 
