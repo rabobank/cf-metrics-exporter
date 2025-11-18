@@ -31,10 +31,23 @@ public class Arguments {
     private String environmentVarName;
     private boolean enableLogEmitter = false;
     private boolean disableAgent = false;
+    // Optional overrides for auth and mTLS
+    private String basicUsername;
+    private String basicPassword;
+    private String cfInstanceKey;
+    private String cfInstanceCert;
+    private String cfSystemCertPath;
 
     public static String usage() {
         return "Usage: java CfMetricsExporter " +
-                "--debug,-d --trace --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random>,--environmentVarName,-e <ENV_VAR_NAME>,--enableLogEmitter,--disableAgent";
+                "--debug,-d --trace " +
+                "--metricsEndpoint,-m <metricsEndpoint> " +
+                "--intervalSeconds,-i <intervalSeconds> " +
+                "--rpsType,-r <tomcat-mbean|spring-request|random> " +
+                "--environmentVarName,-e <ENV_VAR_NAME> " +
+                "--enableLogEmitter --disableAgent " +
+                "[--basicUsername <username> --basicPassword <password>] " +
+                "[--cfInstanceKey <path> --cfInstanceCert <path> --cfSystemCertPath <dir>]";
     }
 
     public static void print(String message) {
@@ -97,6 +110,34 @@ public class Arguments {
                 continue;
             }
 
+            if (matches(arg, "--basicUsername", "basicUsername")) {
+                arguments.basicUsername = options.remove();
+                continue;
+            }
+
+            if (matches(arg, "--basicPassword", "basicPassword")) {
+                arguments.basicPassword = options.remove();
+                continue;
+            }
+
+            // Preferred env-like overrides
+            if (matches(arg, "--cfInstanceKey", "cfInstanceKey")) {
+                arguments.cfInstanceKey = options.remove();
+                continue;
+            }
+
+            if (matches(arg, "--cfInstanceCert", "cfInstanceCert")) {
+                arguments.cfInstanceCert = options.remove();
+                continue;
+            }
+
+            if (matches(arg, "--cfSystemCertPath", "cfSystemCertPath")) {
+                arguments.cfSystemCertPath = options.remove();
+                continue;
+            }
+
+            // Deprecated path-based flags removed: --mtlsKeyPath, --mtlsCertPath, --mtlsCaPath
+
             print("WARN: unknown option: " + arg);
 
         }
@@ -119,6 +160,11 @@ public class Arguments {
                 ", environmentVarName=" + environmentVarName +
                 ", enableLogEmitter=" + enableLogEmitter +
                 ", disableAgent=" + disableAgent +
+                ", basicUsername=" + basicUsername +
+                ", basicPassword=<masked>" +
+                ", cfInstanceKey=" + cfInstanceKey +
+                ", cfInstanceCert=" + cfInstanceCert +
+                ", cfSystemCertPath=" + cfSystemCertPath +
                 '}';
     }
 
@@ -152,6 +198,28 @@ public class Arguments {
 
     public boolean isDisableAgent() {
         return disableAgent;
+    }
+
+    public String basicUsername() {
+        return basicUsername;
+    }
+
+    public String basicPassword() {
+        return basicPassword;
+    }
+
+    // Deprecated getters removed: mtlsKeyPath(), mtlsCertPath(), mtlsCaPath()
+
+    public String cfInstanceKey() {
+        return cfInstanceKey;
+    }
+
+    public String cfInstanceCert() {
+        return cfInstanceCert;
+    }
+
+    public String cfSystemCertPath() {
+        return cfSystemCertPath;
     }
 }
 

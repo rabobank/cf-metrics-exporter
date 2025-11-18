@@ -257,4 +257,41 @@ public final class CertAndKeyProcessing {
 
         return MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
     }
+
+    /**
+     * Initialize MtlsInfo using explicit overrides that mirror the env variables
+     * CF_INSTANCE_KEY, CF_INSTANCE_CERT, CF_SYSTEM_CERT_PATH. If any override is null,
+     * the value will be read from the corresponding environment variable.
+     */
+    public static MtlsInfo initializeMtlsInfoWithOverrides(String cfInstanceKeyOverride,
+                                                           String cfInstanceCertOverride,
+                                                           String cfSystemCertPathOverride) {
+        String cfInstanceKey = cfInstanceKeyOverride != null ? cfInstanceKeyOverride : System.getenv("CF_INSTANCE_KEY");
+        String cfInstanceCert = cfInstanceCertOverride != null ? cfInstanceCertOverride : System.getenv("CF_INSTANCE_CERT");
+        String cfSystemCertPath = cfSystemCertPathOverride != null ? cfSystemCertPathOverride : System.getenv("CF_SYSTEM_CERT_PATH");
+
+        if (cfSystemCertPath == null) {
+            log.error("CF_SYSTEM_CERT_PATH is not available via override or env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        if (cfInstanceCert == null) {
+            log.error("CF_INSTANCE_CERT is not available via override or env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        if (cfInstanceKey == null) {
+            log.error("CF_INSTANCE_KEY is not available via override or env variables.");
+            return INVALID_MTLS_INFO;
+        }
+
+        List<Path> crtFiles = listAllCrtFiles(cfSystemCertPath);
+
+        if (crtFiles.isEmpty()) {
+            log.error("No CA certificates (*.crt files) found in %s.", cfSystemCertPath);
+            return INVALID_MTLS_INFO;
+        }
+
+        return MtlsInfo.extractMtlsInfo(Path.of(cfInstanceKey), Path.of(cfInstanceCert), crtFiles);
+    }
 }

@@ -99,12 +99,54 @@ public class CfMetricsAgent {
         }
 
         ApplicationInfo applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);
-        AutoScalerInfo autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
 
-        // can return invalid mtlsInfo when not all info is available
-        MtlsInfo mtlsInfo = autoScalerInfo.getAuthType() == MTLS
-                ? CertAndKeyProcessing.initializeMtlsInfo()
-                : INVALID_MTLS_INFO;
+        // Extract defaults from VCAP services
+        AutoScalerInfo extractedAutoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
+
+        // Determine effective AutoScaler settings based on CLI overrides
+        AutoScalerInfo autoScalerInfo;
+        MtlsInfo mtlsInfo = INVALID_MTLS_INFO;
+
+        String endpointOverride = args.metricsEndpoint();
+
+        // 1) CLI basic auth override takes precedence
+        if (args.basicUsername() != null && args.basicPassword() != null) {
+            String url = endpointOverride != null ? endpointOverride : extractedAutoScalerInfo.getUrl();
+            autoScalerInfo = AutoScalerInfo.create(url, args.basicUsername(), args.basicPassword(), null);
+            log.info("Using BASIC auth from CLI overrides%s.", endpointOverride != null ? " with metricsEndpoint override" : "");
+        }
+        // 2) CLI mTLS overrides using env-like variables
+        else if (args.cfInstanceKey() != null && args.cfInstanceCert() != null && args.cfSystemCertPath() != null) {
+            String urlMtls = endpointOverride != null ? endpointOverride : extractedAutoScalerInfo.getUrlMtls();
+            autoScalerInfo = AutoScalerInfo.create(null, null, null, urlMtls);
+            mtlsInfo = CertAndKeyProcessing.initializeMtlsInfoWithOverrides(args.cfInstanceKey(), args.cfInstanceCert(), args.cfSystemCertPath());
+            log.info("Using mTLS from CLI env-like overrides%s.", endpointOverride != null ? " with metricsEndpoint override" : "");
+        }
+        // 3) No CLI auth override: apply endpoint override if provided and keep auth from VCAP
+        else {
+            if (endpointOverride != null) {
+                switch (extractedAutoScalerInfo.getAuthType()) {
+                    case BASIC:
+                        autoScalerInfo = AutoScalerInfo.create(endpointOverride, extractedAutoScalerInfo.getUsername(), extractedAutoScalerInfo.getPassword(), null);
+                        log.info("Overriding metricsEndpoint for BASIC auth from VCAP.");
+                        break;
+                    case MTLS:
+                        autoScalerInfo = AutoScalerInfo.create(null, null, null, endpointOverride);
+                        log.info("Overriding metricsEndpoint for mTLS from VCAP.");
+                        break;
+                    default:
+                        autoScalerInfo = extractedAutoScalerInfo; // no auth available, keep NONE
+                        log.info("metricsEndpoint override provided but no auth could be determined; keeping defaults.");
+                }
+            } else {
+                autoScalerInfo = extractedAutoScalerInfo;
+            }
+
+            // Initialize mTLS from environment if required
+            if (autoScalerInfo.getAuthType() == MTLS) {
+                mtlsInfo = CertAndKeyProcessing.initializeMtlsInfo();
+            }
+        }
 
         boolean isAutoscalerMtlsOk = autoScalerInfo.getAuthType() == MTLS && mtlsInfo.isValid();
         boolean isAutoScalerAvailable = autoScalerInfo.getAuthType() == BASIC || isAutoscalerMtlsOk;

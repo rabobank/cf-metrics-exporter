@@ -40,6 +40,10 @@ public final class AutoScalerInfo {
         this.authType = determineAuthType(url, username, password, urlMtls);
     }
 
+    public static AutoScalerInfo create(String url, String username, String password, String urlMtls) {
+        return new AutoScalerInfo(url, username, password, urlMtls);
+    }
+
     public String getPassword() {
         return password;
     }
