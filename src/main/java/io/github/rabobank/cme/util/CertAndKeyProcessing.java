@@ -18,19 +18,14 @@ package io.github.rabobank.cme.util;
 import io.github.rabobank.cme.CfMetricsAgentException;
 import io.github.rabobank.cme.Logger;
 import io.github.rabobank.cme.domain.MtlsInfo;
-import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.bouncycastle.openssl.PEMKeyPair;
-import org.bouncycastle.openssl.PEMParser;
-import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.*;
@@ -39,6 +34,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.security.spec.RSAPrivateCrtKeySpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import java.util.Collection;
@@ -55,14 +51,6 @@ public final class CertAndKeyProcessing {
     private static final Logger log = Logger.getLogger(CertAndKeyProcessing.class);
 
     private static final Pattern LINEBREAKS = Pattern.compile("\\s|\\r|\\n");
-
-    static {
-        // Ensure BouncyCastle provider is registered once when the class is loaded
-        if (Security.getProvider("BC") == null) {
-            log.info("Registering BouncyCastle security provider for mTLS using PKCS#1 keys");
-            Security.addProvider(new BouncyCastleProvider());
-        }
-    }
 
     private CertAndKeyProcessing() {
         // do not create instances
@@ -173,21 +161,13 @@ public final class CertAndKeyProcessing {
         byte[] der = Base64.getDecoder().decode(privateKeyPEM);
 
         if (pemKey.contains("BEGIN RSA PRIVATE KEY")) {
-            // Traditional RSA key format
+            // PKCS#1 (RSA PRIVATE KEY) format (DER-encoded ASN.1 sequence)
             try {
-                JcaPEMKeyConverter converter;
-                Object object;
-                try (PEMParser pemParser = new PEMParser(new StringReader(pemKey))) {
-                    converter = new JcaPEMKeyConverter().setProvider("BC");
-                    object = pemParser.readObject();
-                }
-                if (object instanceof PEMKeyPair) {
-                    return converter.getPrivateKey(((PEMKeyPair) object).getPrivateKeyInfo());
-                } else {
-                    return converter.getPrivateKey((PrivateKeyInfo) object);
-                }
-            } catch (IOException e) {
-                throw new CfMetricsAgentException("Failed to process rsa key", e);
+                RSAPrivateCrtKeySpec spec = parsePkcs1PrivateKey(der);
+                KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+                return keyFactory.generatePrivate(spec);
+            } catch (Exception e) {
+                throw new CfMetricsAgentException("Failed to process PKCS#1 rsa key", e);
             }
         } else if (pemKey.contains("BEGIN PRIVATE KEY")) {
             try {
@@ -201,6 +181,100 @@ public final class CertAndKeyProcessing {
         }
         else {
             throw new CfMetricsAgentException("Failed to load private key, unknown format");
+        }
+    }
+
+    // Minimal ASN.1 DER parser for PKCS#1 RSA private keys.
+    //
+    // - This parser (parsePkcs1PrivateKey and the nested DerReader) was added to this
+    //   project to remove the dependency on Bouncy Castle and still support PKCS#1 ("BEGIN RSA PRIVATE KEY") keys.
+    // - The implementation is based on the PKCS#1 RSAPrivateKey structure as defined in RFC 3447
+    //   and the basic DER encoding rules (see ITU‑T X.690).
+    // - It is intentionally minimal and only implements what is required to parse unencrypted
+    //   RSA private keys used by typical OpenSSL outputs.
+    // Structure (RFC 3447):
+    // RSAPrivateKey ::= SEQUENCE {
+    //   version           Version,
+    //   modulus           INTEGER,  -- n
+    //   publicExponent    INTEGER,  -- e
+    //   privateExponent   INTEGER,  -- d
+    //   prime1            INTEGER,  -- p
+    //   prime2            INTEGER,  -- q
+    //   exponent1         INTEGER,  -- d mod (p-1)
+    //   exponent2         INTEGER,  -- d mod (q-1)
+    //   coefficient       INTEGER,  -- (inverse of q) mod p
+    //   otherPrimeInfos   OtherPrimeInfos OPTIONAL
+    // }
+    private static RSAPrivateCrtKeySpec parsePkcs1PrivateKey(byte[] der) throws IOException {
+        DerReader reader = new DerReader(der);
+        DerReader seq = reader.readSequence();
+        // version
+        seq.readInteger();
+        BigInteger n = seq.readInteger();
+        BigInteger e = seq.readInteger();
+        BigInteger d = seq.readInteger();
+        BigInteger p = seq.readInteger();
+        BigInteger q = seq.readInteger();
+        BigInteger dp = seq.readInteger();
+        BigInteger dq = seq.readInteger();
+        BigInteger qi = seq.readInteger();
+        return new RSAPrivateCrtKeySpec(n, e, d, p, q, dp, dq, qi);
+    }
+
+    // Helper DER reader
+    private static final class DerReader {
+        private final byte[] data;
+        private int pos;
+
+        DerReader(byte[] data) { this.data = data; this.pos = 0; }
+
+        DerReader readSequence() throws IOException {
+            int tag = readByte();
+            if (tag != 0x30) {
+                throw new IOException("Expected SEQUENCE (0x30), found: 0x" + Integer.toHexString(tag));
+            }
+            int length = readLength();
+            byte[] content = readBytes(length);
+            return new DerReader(content);
+        }
+
+        BigInteger readInteger() throws IOException {
+            int tag = readByte();
+            if (tag != 0x02) {
+                throw new IOException("Expected INTEGER (0x02), found: 0x" + Integer.toHexString(tag));
+            }
+            int length = readLength();
+            byte[] value = readBytes(length);
+            return new BigInteger(value);
+        }
+
+        private int readByte() throws IOException {
+            if (pos >= data.length) throw new IOException("Unexpected end of DER data");
+            return data[pos++] & 0xFF;
+        }
+
+        private int readLength() throws IOException {
+            int b = readByte();
+            if ((b & 0x80) == 0) {
+                return b;
+            }
+            int numBytes = b & 0x7F;
+            if (numBytes == 0 || numBytes > 4) {
+                throw new IOException("Unsupported DER length byte count: " + numBytes);
+            }
+            int length = 0;
+            for (int i = 0; i < numBytes; i++) {
+                length = (length << 8) | readByte();
+            }
+            return length;
+        }
+
+        private byte[] readBytes(int len) throws IOException {
+            if (pos + len > data.length) throw new IOException("Length exceeds available data");
+            byte[] out = new byte[len];
+            System.arraycopy(data, pos, out, 0, len);
+            pos += len;
+            return out;
         }
     }
 

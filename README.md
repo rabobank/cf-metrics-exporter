@@ -112,7 +112,6 @@ The attributes are:
 
 - The `environment` is the value of the system environment as given by the `environmentVarName` variable.
 
-
 ## Build
 
 To build the project, use the following command:
@@ -131,15 +130,9 @@ The certificates for mTLS are generated with the `mtls-certs/mtls-certificate-se
 This script is executed in the compile step of the Maven build.
 The certs are in `target/generated-certs`.
 
-Beware: the client private key is not exactly the same as the ones used in cloud foundry,
-so parse errors were present when reading the private key on cloud foundry. The bouncy castles
-library is currently included for the correct parsing of the client private key. This was 
-the error without bouncy castles:
-
-```
-Failed to load private client key Caused by: java.security.spec.InvalidKeySpecException: java.security.InvalidKeyException: IOException : algid parse error, not a sequence Caused by: java.security.InvalidKeyException: IOException : algid parse error, not a sequence
-```
-
+Beware: PKCS#1 and PKCS#8 PEM formats are both encountered in practice. This project implements
+an minimal pure‑Java parser for unencrypted PKCS#1 ("BEGIN RSA PRIVATE KEY") keys and uses standard
+JCA APIs for PKCS#8 ("BEGIN PRIVATE KEY") keys. No external crypto providers are required.
 
 # Notes
 
