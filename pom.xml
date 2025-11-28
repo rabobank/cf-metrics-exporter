@@ -194,10 +194,6 @@
                                     <pattern>net.bytebuddy</pattern>
                                     <shadedPattern>io.github.rabobank.cme.shaded.net.bytebuddy</shadedPattern>
                                 </relocation>
-                                <relocation>
-                                    <pattern>org.bouncycastle</pattern>
-                                    <shadedPattern>io.github.rabobank.org.bouncycastle</shadedPattern>
-                                </relocation>
                             </relocations>
                             <!-- Combine all transformers under a single element -->
                             <transformers>
@@ -233,13 +229,6 @@
                                     <artifact>net.bytebuddy:*</artifact>
                                     <excludes>
                                         <exclude>META-INF/MANIFEST.MF</exclude>
-                                    </excludes>
-                                </filter>
-                                <filter>
-                                    <artifact>org.bouncycastle:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/MANIFEST.MF</exclude>
-                                        <exclude>META-INF/versions/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

@@ -76,8 +76,7 @@ class CustomMetricsSenderMtlsTest {
 
     @Test
     void sendsMetricOverMtlsToAutoscaler() throws Exception {
-        // Debug visibility: was BouncyCastle already registered in this JVM?
-        System.out.println("[DEBUG_LOG] BC provider present before test: " + (Security.getProvider("BC") != null));
+
         // Build MtlsInfo from generated PEM files
         Path base = Path.of("target", "generated-certs");
        // Ensure we test the PKCS#1 code path explicitly by generating a PKCS#1 RSA private key PEM
