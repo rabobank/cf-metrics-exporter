@@ -27,7 +27,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.Security;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -90,9 +89,9 @@ class CustomMetricsSenderMtlsTest {
         assertTrue(keyPem.contains("BEGIN RSA PRIVATE KEY"), "Expected client-key-pkcs1.pem to be PKCS#1 (BEGIN RSA PRIVATE KEY). If not, the test setup script may have changed.");
 
         List<Path> caFiles;
-        try {
-            caFiles = Files.list(cacertsDir)
-                    .filter(p -> p.getFileName().toString().endsWith(".crt"))
+
+        try (var fileStream = Files.list(cacertsDir)) {
+            caFiles = fileStream.filter(p -> p.getFileName().toString().endsWith(".crt"))
                     .collect(Collectors.toList());
         } catch (IOException e) {
             throw new IllegalStateException("Failed to list CA files in " + cacertsDir, e);

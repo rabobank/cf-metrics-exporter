@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 // v6.0.0
         with:
           fetch-depth: 0
 
@@ -109,7 +109,7 @@ jobs:
           git push origin "refs/tags/${TAG}"
 
       - name: Create draft GitHub Release
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b // v1.20.0
         with:
           tag: ${{ steps.prep.outputs.tag }}
           name: ${{ steps.prep.outputs.tag }}
