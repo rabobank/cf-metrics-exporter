@@ -16,74 +16,25 @@
 package io.github.rabobank.cme.rps;
 
 import io.github.rabobank.cme.Logger;
-import net.bytebuddy.agent.builder.AgentBuilder;
-import net.bytebuddy.asm.Advice;
-import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.dynamic.DynamicType;
-import net.bytebuddy.matcher.ElementMatchers;
-import net.bytebuddy.utility.JavaModule;
-
+import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
+import java.security.ProtectionDomain;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class SpringRequestRPS implements RequestsPerSecond {
-    // make available for the byte buddy handler to log some debug
-    public static final Logger log = Logger.getLogger(SpringRequestRPS.class);
+import org.objectweb.asm.*;
+import org.objectweb.asm.commons.AdviceAdapter;
 
+public class SpringRequestRPS implements RequestsPerSecond {
+    public static final Logger log = Logger.getLogger(SpringRequestRPS.class);
     private static final AtomicInteger REQUEST_COUNTER = new AtomicInteger(0);
     private static final AtomicLong LAST_RESET_TIME = new AtomicLong(System.currentTimeMillis());
-
     private static volatile int currentRps = 0;
 
     public static void initializeSpringInstrumentation(Instrumentation instrumentation) {
         log.debug("Initializing Spring instrumentation");
-
-        AgentBuilder.Listener debugListener = new AgentBuilder.Listener() {
-            @Override
-            public void onDiscovery(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.trace("Discovered: %s", typeName);
-            }
-
-            @Override
-            public void onTransformation(TypeDescription typeDescription, ClassLoader classLoader, JavaModule module, boolean loaded, DynamicType dynamicType) {
-                log.info("Successfully transformed: %s", typeDescription.getName());
-            }
-
-            @Override
-            public void onIgnored(TypeDescription typeDescription, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.trace("Ignored: %s", typeDescription.getName());
-            }
-
-            @Override
-            public void onError(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable throwable) {
-                log.error("Error transforming: %s", throwable, typeName);
-            }
-
-            @Override
-            public void onComplete(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.trace("Completed: %s", typeName);
-            }
-        };
-
-        new AgentBuilder.Default()
-                .with(debugListener)
-                .type(ElementMatchers.named("org.springframework.web.reactive.DispatcherHandler")
-                        .or(ElementMatchers.named("org.springframework.web.servlet.DispatcherServlet"))
-                )
-                .transform((builder, type, classLoader, module, protectionDomain) -> {
-                    printClassLoaderInfo(type, classLoader);
-                    return builder.method(ElementMatchers.named("handle").or(ElementMatchers.named("doService")))
-                            .intercept(Advice.to(HandlerMethodAdvice.class));
-                })
-                .installOn(instrumentation);
-
+        instrumentation.addTransformer(new SpringRequestRpsTransformer(), true);
         log.info("Spring instrumentation initialized.");
-    }
-
-    private static void printClassLoaderInfo(TypeDescription type, ClassLoader classLoader) {
-        log.info("Transforming class: %s using classloader: %s",
-                type.getName(), classLoader != null ? classLoader.getClass().getName() : "bootstrap");
     }
 
     @Override
@@ -92,19 +43,6 @@ public class SpringRequestRPS implements RequestsPerSecond {
             updateRpsMetrics();
         }
         return currentRps;
-    }
-
-    public static final class HandlerMethodAdvice {
-        private HandlerMethodAdvice() {
-            // Private constructor to prevent instantiation
-        }
-        @Advice.OnMethodEnter
-        public static void onEnter(@Advice.Origin String method, @Advice.This Object thiz) {
-            if (log.isTraceEnabled()) {
-                log.trace("Count request for %s on %s", method, thiz.getClass().getName());
-            }
-            incrementRequestCount();
-        }
     }
 
     // Method to reset and calculate RPS periodically
@@ -120,12 +58,52 @@ public class SpringRequestRPS implements RequestsPerSecond {
         currentRps = (int) Math.ceil((double) count / secondsElapsed);
 
         if (log.isDebugEnabled()) {
-            log.debug("Spring request count in last %d seconds: %d, calculated RPS: %d",
-                    secondsElapsed, count, currentRps);
+            log.debug("Spring request count in last %d seconds: %d, calculated RPS: %d", secondsElapsed, count, currentRps);
         }
     }
 
     public static void incrementRequestCount() {
         REQUEST_COUNTER.incrementAndGet();
+    }
+
+    // ASM-based transformer
+    public static class SpringRequestRpsTransformer implements ClassFileTransformer {
+        @Override
+        public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
+                                ProtectionDomain domain, byte[] classfileBuffer) {
+            if ("org/springframework/web/servlet/DispatcherServlet".equals(className)) {
+                return transformClass(classfileBuffer, "doService");
+            }
+            if ("org/springframework/web/reactive/DispatcherHandler".equals(className)) {
+                return transformClass(classfileBuffer, "handle");
+            }
+            return null;
+        }
+
+        private byte[] transformClass(byte[] classfileBuffer, String methodName) {
+            ClassReader cr = new ClassReader(classfileBuffer);
+            ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+            ClassVisitor cv = new ClassVisitor(Opcodes.ASM9, cw) {
+                @Override
+                public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+                    MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+                    if (name.equals(methodName)) {
+                        return new AdviceAdapter(Opcodes.ASM9, mv, access, name, desc) {
+                            @Override
+                            protected void onMethodEnter() {
+                                mv.visitMethodInsn(Opcodes.INVOKESTATIC,
+                                    "io/github/rabobank/cme/rps/SpringRequestRPS",
+                                    "incrementRequestCount",
+                                    "()V",
+                                    false);
+                            }
+                        };
+                    }
+                    return mv;
+                }
+            };
+            cr.accept(cv, 0);
+            return cw.toByteArray();
+        }
     }
 }
