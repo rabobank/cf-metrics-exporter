@@ -32,9 +32,14 @@ public class SpringRequestRPS implements RequestsPerSecond {
     private static volatile int currentRps = 0;
 
     public static void initializeSpringInstrumentation(Instrumentation instrumentation) {
-        log.debug("Initializing Spring instrumentation");
-        instrumentation.addTransformer(new SpringRequestRpsTransformer(), true);
-        log.info("Spring instrumentation initialized.");
+        try {
+            log.debug("Initializing Spring instrumentation");
+            instrumentation.addTransformer(new SpringRequestRpsTransformer(), true);
+            log.info("Spring instrumentation initialized.");
+        } catch (Exception e) {
+            log.error("Spring instrumentation failed: %s", e);
+            // Do not throw, continue running
+        }
     }
 
     @Override
@@ -72,10 +77,14 @@ public class SpringRequestRPS implements RequestsPerSecond {
         public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                                 ProtectionDomain domain, byte[] classfileBuffer) {
             if ("org/springframework/web/servlet/DispatcherServlet".equals(className)) {
-                return transformClass(classfileBuffer, "doService");
+                String methodName = "doService";
+                log.info("Transforming class '%s' method '%s'", className, methodName);
+                return transformClass(classfileBuffer, methodName);
             }
             if ("org/springframework/web/reactive/DispatcherHandler".equals(className)) {
-                return transformClass(classfileBuffer, "handle");
+                String methodName = "handle";
+                log.info("Transforming class '%s' method '%s'", className, methodName);
+                return transformClass(classfileBuffer, methodName);
             }
             return null;
         }
