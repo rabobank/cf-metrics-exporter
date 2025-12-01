@@ -21,12 +21,12 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           fetch-depth: 0
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -42,6 +42,36 @@ jobs:
           git fetch --all --tags -f
           git checkout tags/${{ github.event.release.tag_name }} -b ${{ github.event.release.tag_name }}-tmp-branch
 
+      - name: Verify .mvn/maven.config revision matches tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          # Enforce tags must NOT start with 'v'
+          if [[ "$TAG" =~ ^v ]]; then
+            echo "ERROR: Release tag '$TAG' is prefixed with 'v'. Tags must not start with 'v' (use e.g., 1.2.3)." >&2
+            exit 1
+          fi
+
+          desired_line="-Drevision=${TAG}"
+          if [[ -f .mvn/maven.config ]] && grep -qxF "$desired_line" .mvn/maven.config; then
+            echo "maven.config contains the expected release revision (${TAG}). Proceeding with release."
+            exit 0
+          else
+            echo "ERROR: .mvn/maven.config does not match the release tag." >&2
+            echo "Expected a line with: $desired_line" >&2
+            echo >&2
+            echo "Please update .mvn/maven.config in the repository so it matches the tag and re-run the release." >&2
+            echo "After the release, remember to manually bump the main branch to the next -SNAPSHOT version, e.g.:" >&2
+            echo "  # example (adjust version to your next development version)" >&2
+            echo "  git checkout main" >&2
+            echo "  echo '-Drevision=X.Y.Z-SNAPSHOT' > .mvn/maven.config" >&2
+            echo "  git commit -am 'chore: set next development version to X.Y.Z-SNAPSHOT'" >&2
+            echo "  git push origin main" >&2
+            exit 1
+          fi
+
       - name: Deploy
         env:
           MAVEN_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
@@ -50,9 +80,18 @@ jobs:
         run: |
           ./mvnw --batch-mode -Drevision=${{ github.event.release.tag_name }} -P release clean deploy
 
-      - uses: ncipollo/release-action@v1
+      - uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b # v1.20.0
         with:
           artifacts: "target/cf-metrics-exporter-${{ github.event.release.tag_name }}.jar"
           bodyFile: CHANGELOG.md
           allowUpdates: true
           makeLatest: true
+      
+      - name: Reminder to bump main to next SNAPSHOT (manual)
+        run: |
+          echo "Reminder: After this release, manually bump the main branch to the next -SNAPSHOT version."
+          echo "Steps (example):"
+          echo "  git checkout main"
+          echo "  echo '-Drevision=X.Y.Z-SNAPSHOT' > .mvn/maven.config"
+          echo "  git commit -am 'chore: set next development version to X.Y.Z-SNAPSHOT'"
+          echo "  git push origin main"

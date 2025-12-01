@@ -60,7 +60,7 @@
         <maven.compiler.release>11</maven.compiler.release>
         <!-- override the version of ASM used by shader plugin, support for java 24 -->
         <asm.version>9.9</asm.version>
-        <byte-buddy.version>1.17.8</byte-buddy.version>
+        <!-- slf4j needed for test only -->
         <slf4j.version>2.0.17</slf4j.version>
     </properties>
 
@@ -76,16 +76,6 @@
             <artifactId>slf4j-simple</artifactId>
             <version>${slf4j.version}</version>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.bytebuddy</groupId>
-            <artifactId>byte-buddy</artifactId>
-            <version>${byte-buddy.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>net.bytebuddy</groupId>
-            <artifactId>byte-buddy-agent</artifactId>
-            <version>${byte-buddy.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -116,6 +106,21 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-commons</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -132,6 +137,7 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
+                            <skip>${skipTests}</skip>
                             <executable>bash</executable>
                             <arguments>
                                 <argument>${basedir}/mtls-certs/mtls-certificate-setup.sh</argument>
@@ -186,19 +192,9 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
-                            <minimizeJar>false</minimizeJar>
+                            <!-- Reduce shaded content to only classes actually used at runtime -->
+                            <minimizeJar>true</minimizeJar>
                             <createDependencyReducedPom>true</createDependencyReducedPom>
-                            <!-- Relocate ByteBuddy classes to avoid conflicts -->
-                            <relocations>
-                                <relocation>
-                                    <pattern>net.bytebuddy</pattern>
-                                    <shadedPattern>io.github.rabobank.cme.shaded.net.bytebuddy</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.bouncycastle</pattern>
-                                    <shadedPattern>io.github.rabobank.org.bouncycastle</shadedPattern>
-                                </relocation>
-                            </relocations>
                             <!-- Combine all transformers under a single element -->
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
@@ -210,6 +206,13 @@
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
+                            <!-- Relocate ASM to avoid conflicts with host application -->
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.objectweb.asm</pattern>
+                                    <shadedPattern>io.github.rabobank.cme.shaded.asm</shadedPattern>
+                                </relocation>
+                            </relocations>
                             <!-- Keep all ByteBuddy service files to ensure proper functionality -->
                             <filters>
                                 <filter>
@@ -218,28 +221,12 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
-                                    </excludes>
-                                </filter>
-                                <!-- Avoid overlapping resources in byte-buddy jars -->
-                                <filter>
-                                    <artifact>net.bytebuddy:byte-buddy-agent</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/LICENSE</exclude>
-                                        <exclude>META-INF/NOTICE</exclude>
-                                        <exclude>META-INF/versions/9/module-info.class</exclude>
-                                    </excludes>
-                                </filter>
-                                <filter>
-                                    <artifact>net.bytebuddy:*</artifact>
-                                    <excludes>
+                                        <!-- Exclude module descriptors to avoid shade warning about breaking strong encapsulation -->
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/*/module-info.class</exclude>
+                                        <exclude>META-INF/versions/**/module-info.class</exclude>
+                                        <!-- Exclude manifests from dependencies; we provide our own via ManifestResourceTransformer -->
                                         <exclude>META-INF/MANIFEST.MF</exclude>
-                                    </excludes>
-                                </filter>
-                                <filter>
-                                    <artifact>org.bouncycastle:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/MANIFEST.MF</exclude>
-                                        <exclude>META-INF/versions/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
@@ -255,6 +242,11 @@
                     <dependency>
                         <groupId>org.ow2.asm</groupId>
                         <artifactId>asm-commons</artifactId>
+                        <version>${asm.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.ow2.asm</groupId>
+                        <artifactId>asm-util</artifactId>
                         <version>${asm.version}</version>
                     </dependency>
                 </dependencies>
@@ -310,27 +302,6 @@
                         </goals>
                     </execution>
                 </executions>
-            </plugin>
-            <!-- Release relevant plugins -->
-            <plugin>
-                <groupId>org.sonatype.central</groupId>
-                <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.9.0</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <autoPublish>false</autoPublish>
-                    <excludeArtifacts>
-                        <excludeArtifact>integration-test</excludeArtifact>
-                    </excludeArtifacts>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-release-plugin</artifactId>
-                <version>3.1.1</version>
-                <configuration>
-                    <tagNameFormat>@{project.version}</tagNameFormat>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -435,6 +406,26 @@
                                 <arg>--pinentry-mode</arg>
                                 <arg>loopback</arg>
                             </gpgArguments>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.9.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <autoPublish>false</autoPublish>
+                            <excludeArtifacts>
+                                <excludeArtifact>integration-test</excludeArtifact>
+                            </excludeArtifacts>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-release-plugin</artifactId>
+                        <version>3.1.1</version>
+                        <configuration>
+                            <tagNameFormat>@{project.version}</tagNameFormat>
                         </configuration>
                     </plugin>
                 </plugins>

@@ -16,74 +16,72 @@
 package io.github.rabobank.cme.rps;
 
 import io.github.rabobank.cme.Logger;
-import net.bytebuddy.agent.builder.AgentBuilder;
-import net.bytebuddy.asm.Advice;
-import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.dynamic.DynamicType;
-import net.bytebuddy.matcher.ElementMatchers;
-import net.bytebuddy.utility.JavaModule;
+import org.objectweb.asm.*;
+import org.objectweb.asm.commons.AdviceAdapter;
 
+import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
+import java.net.URL;
+import java.security.ProtectionDomain;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class SpringRequestRPS implements RequestsPerSecond {
-    // make available for the byte buddy handler to log some debug
     public static final Logger log = Logger.getLogger(SpringRequestRPS.class);
 
     private static final AtomicInteger REQUEST_COUNTER = new AtomicInteger(0);
     private static final AtomicLong LAST_RESET_TIME = new AtomicLong(System.currentTimeMillis());
-
     private static volatile int currentRps = 0;
+    // Ensure we don't register the transformer more than once across tests/JVM lifecycle
+    private static final AtomicBoolean TRANSFORMER_INSTALLED = new AtomicBoolean(false);
+    // Ensure we only run the expensive retransformation pass once to avoid double-instrumentation
+    private static final AtomicBoolean RETRANSFORM_EXECUTED = new AtomicBoolean(false);
 
     public static void initializeSpringInstrumentation(Instrumentation instrumentation) {
-        log.debug("Initializing Spring instrumentation");
-
-        AgentBuilder.Listener debugListener = new AgentBuilder.Listener() {
-            @Override
-            public void onDiscovery(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.trace("Discovered: %s", typeName);
+        try {
+            log.debug("Initializing Spring instrumentation");
+            if (TRANSFORMER_INSTALLED.compareAndSet(false, true)) {
+                SpringRequestRpsTransformer transformer = new SpringRequestRpsTransformer();
+                instrumentation.addTransformer(transformer, true);
+                log.debug("Spring transformer registered (canRetransform=true)");
+            } else {
+                log.debug("Spring transformer already registered, skipping duplicate registration");
             }
 
-            @Override
-            public void onTransformation(TypeDescription typeDescription, ClassLoader classLoader, JavaModule module, boolean loaded, DynamicType dynamicType) {
-                log.info("Successfully transformed: %s", typeDescription.getName());
+            // Attempt to retransform already loaded target classes so that
+            // the instrumentation also applies when Spring was loaded before the agent.
+            if (instrumentation.isRetransformClassesSupported()) {
+                if (RETRANSFORM_EXECUTED.compareAndSet(false, true)) {
+                    for (Class<?> loaded : instrumentation.getAllLoadedClasses()) {
+                        String name = loaded.getName();
+                        if (isTargetClass(name) && instrumentation.isModifiableClass(loaded)) {
+                            try {
+                                log.info("Retransforming already loaded class '%s'", name);
+                                instrumentation.retransformClasses(loaded);
+                            } catch (Exception ex) {
+                                log.error("Failed to retransform class %s: %s", name, ex);
+                            }
+                        }
+                    }
+                } else {
+                    log.debug("Retransformation pass already executed once, skipping to avoid double instrumentation");
+                }
+            } else {
+                log.info("Retransform classes not supported by current JVM/instrumentation.");
             }
 
-            @Override
-            public void onIgnored(TypeDescription typeDescription, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.trace("Ignored: %s", typeDescription.getName());
-            }
-
-            @Override
-            public void onError(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable throwable) {
-                log.error("Error transforming: %s", throwable, typeName);
-            }
-
-            @Override
-            public void onComplete(String typeName, ClassLoader classLoader, JavaModule module, boolean loaded) {
-                log.trace("Completed: %s", typeName);
-            }
-        };
-
-        new AgentBuilder.Default()
-                .with(debugListener)
-                .type(ElementMatchers.named("org.springframework.web.reactive.DispatcherHandler")
-                        .or(ElementMatchers.named("org.springframework.web.servlet.DispatcherServlet"))
-                )
-                .transform((builder, type, classLoader, module, protectionDomain) -> {
-                    printClassLoaderInfo(type, classLoader);
-                    return builder.method(ElementMatchers.named("handle").or(ElementMatchers.named("doService")))
-                            .intercept(Advice.to(HandlerMethodAdvice.class));
-                })
-                .installOn(instrumentation);
-
-        log.info("Spring instrumentation initialized.");
+            log.info("Spring instrumentation initialized");
+        } catch (Exception e) {
+            log.error("Spring instrumentation failed: %s", e);
+            // Do not throw, continue running
+        }
     }
 
-    private static void printClassLoaderInfo(TypeDescription type, ClassLoader classLoader) {
-        log.info("Transforming class: %s using classloader: %s",
-                type.getName(), classLoader != null ? classLoader.getClass().getName() : "bootstrap");
+    private static boolean isTargetClass(String fqcn) {
+        // Only instrument the two explicitly requested Spring entry points
+        return "org.springframework.web.servlet.DispatcherServlet".equals(fqcn)
+                || "org.springframework.web.reactive.DispatcherHandler".equals(fqcn);
     }
 
     @Override
@@ -92,19 +90,6 @@ public class SpringRequestRPS implements RequestsPerSecond {
             updateRpsMetrics();
         }
         return currentRps;
-    }
-
-    public static final class HandlerMethodAdvice {
-        private HandlerMethodAdvice() {
-            // Private constructor to prevent instantiation
-        }
-        @Advice.OnMethodEnter
-        public static void onEnter(@Advice.Origin String method, @Advice.This Object thiz) {
-            if (log.isTraceEnabled()) {
-                log.trace("Count request for %s on %s", method, thiz.getClass().getName());
-            }
-            incrementRequestCount();
-        }
     }
 
     // Method to reset and calculate RPS periodically
@@ -116,16 +101,118 @@ public class SpringRequestRPS implements RequestsPerSecond {
         // Calculate seconds elapsed, minimum 1 to avoid division by zero
         long secondsElapsed = Math.max(1, (currentTimeMillis - previousTimeMillis) / 1000);
 
-        // Report 1 RPS if there is at least 1 count, 0 if it is really 0 hits
-        currentRps = (int) Math.ceil((double) count / secondsElapsed);
+        // Report 1 RPS if there is at least 1 count, 0 only if it is really 0 hits
+        currentRps = count == 0 ? 0 : Math.max(1, (int) Math.round((double) count / secondsElapsed));
 
         if (log.isDebugEnabled()) {
-            log.debug("Spring request count in last %d seconds: %d, calculated RPS: %d",
-                    secondsElapsed, count, currentRps);
+            log.debug("Spring request count in last %d seconds: %d, calculated avg RPS: %d", secondsElapsed, count, currentRps);
         }
     }
 
     public static void incrementRequestCount() {
         REQUEST_COUNTER.incrementAndGet();
     }
+
+    // ASM-based transformer
+    public static class SpringRequestRpsTransformer implements ClassFileTransformer {
+
+        public static final String DISPATCHER_SERVLET_CLASS_PATH = "org/springframework/web/servlet/DispatcherServlet";
+        public static final String REACTIVE_DISPATCHER_HANDLER_PATH = "org/springframework/web/reactive/DispatcherHandler";
+
+        @Override
+        public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
+                                ProtectionDomain domain, byte[] classfileBuffer) {
+
+
+            if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)
+                    || REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
+                log.debug("Starting transformation of class %s", className);
+
+                if (log.isDebugEnabled()) {
+                    // Log classloader and protection domain details for diagnostics
+                    String clName = (loader == null) ? "<bootstrap>" : loader.getClass().getName();
+                    String clStr = (loader == null) ? "<bootstrap>" : loader.toString();
+                    ClassLoader parent = (loader == null) ? null : loader.getParent();
+                    URL codeSource = null;
+                    if (domain != null && domain.getCodeSource() != null) {
+                        codeSource = domain.getCodeSource().getLocation();
+                    }
+                    log.debug("Transform request: class='%s', loader='%s' (%s), parentLoader='%s', codeSource='%s', retransform=%s",
+                            className, clName, clStr, (parent == null ? "<none>" : parent.getClass().getName()),
+                            String.valueOf(codeSource), String.valueOf(classBeingRedefined != null));
+                }
+
+                if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)) {
+                    // Only instrument doService as requested
+                    String method = "doService";
+                    log.info("Transforming class '%s' method '%s'", className, method);
+                    return transformClass(className, classfileBuffer, method, loader);
+                }
+
+                if (REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
+                    String methodName = "handle";
+                    log.info("Transforming class '%s' method '%s'", className, methodName);
+                    return transformClass(className, classfileBuffer, methodName, loader);
+                }
+            }
+            return null;
+        }
+
+        private byte[] transformClass(String internalClassName, byte[] classfileBuffer, String methodName, ClassLoader loader) {
+            log.debug("Starting transformation of class %s for method %s", internalClassName, methodName);
+            ClassReader classReader = new ClassReader(classfileBuffer);
+            // Use COMPUTE_MAXS to avoid ClassWriter frame recomputation that may require
+            // application class loading (getCommonSuperClass). We also expand frames in
+            // the reader/accept path to satisfy LocalVariablesSorter/AdviceAdapter.
+            ClassWriter classWriter = new ClassWriter(classReader, ClassWriter.COMPUTE_MAXS);
+            ClassVisitor classVisitor = new ClassVisitor(Opcodes.ASM9, classWriter) {
+                private boolean injected;
+
+                @Override
+                public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+                    log.trace("Visiting method %s#%s", internalClassName, name);
+                    MethodVisitor mv = super.visitMethod(access, name, desc, signature, exceptions);
+                    if (name.equals(methodName)) {
+                        // Skip abstract or native methods (no bytecode to modify)
+                        if ((access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
+                            log.debug("Skipping method '%s' in %s because it is abstract/native", name, internalClassName);
+                            return mv;
+                        }
+                        return new AdviceAdapter(Opcodes.ASM9, mv, access, name, desc) {
+                            @Override
+                            protected void onMethodEnter() {
+                                log.debug("Injecting call to incrementRequestCount into %s#%s", internalClassName, methodName);
+                                mv.visitMethodInsn(Opcodes.INVOKESTATIC,
+                                        "io/github/rabobank/cme/rps/SpringRequestRPS",
+                                        "incrementRequestCount",
+                                        "()V",
+                                        false);
+                                injected = true;
+                            }
+                        };
+                    }
+                    return mv;
+                }
+
+                @Override
+                public void visitEnd() {
+                    super.visitEnd();
+                    if (injected) {
+                        log.trace("Injected call to incrementRequestCount into %s#%s", internalClassName, methodName);
+                    } else {
+                        log.trace("No injection performed for method '%s' in %s (method not found or not eligible)", methodName, internalClassName);
+                    }
+                }
+            };
+            try {
+                // EXPAND_FRAMES is required when using LocalVariablesSorter/AdviceAdapter
+                // to ensure expanded stack map frames are provided to visitors.
+                classReader.accept(classVisitor, ClassReader.EXPAND_FRAMES);
+            } catch (Exception t) {
+                log.error("Failed to transform class %s: %s", internalClassName, t);
+            }
+            return classWriter.toByteArray();
+        }
+    }
+
 }

@@ -93,44 +93,54 @@ public class CfMetricsAgent {
         String vcapServicesJson = System.getenv("VCAP_SERVICES");
         String cfInstanceIndex = System.getenv("CF_INSTANCE_INDEX");
 
-        if (vcapApplicationJson == null || vcapServicesJson == null || cfInstanceIndex == null) {
-            log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables: CfMetricsAgent will not be activated.");
-            return;
-        }
-
-        ApplicationInfo applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);
-        AutoScalerInfo autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
-
-        // can return invalid mtlsInfo when not all info is available
-        MtlsInfo mtlsInfo = autoScalerInfo.getAuthType() == MTLS
-                ? CertAndKeyProcessing.initializeMtlsInfo()
-                : INVALID_MTLS_INFO;
-
-        boolean isAutoscalerMtlsOk = autoScalerInfo.getAuthType() == MTLS && mtlsInfo.isValid();
-        boolean isAutoScalerAvailable = autoScalerInfo.getAuthType() == BASIC || isAutoscalerMtlsOk;
-
-        // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
-        String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
-        URI otlpMetricsUri = parseUri(otlpUrl);
-        boolean isOtlpEnabled = otlpMetricsUri != null;
+        boolean cfEnvAvailable = vcapApplicationJson != null && vcapServicesJson != null && cfInstanceIndex != null;
 
         List<MetricEmitter> emitters = new ArrayList<>();
-        if (isAutoScalerAvailable) {
-            createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
+        ApplicationInfo applicationInfo;
+        AutoScalerInfo autoScalerInfo;
+
+        if (cfEnvAvailable) {
+            applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);
+            autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
+
+            // can return invalid mtlsInfo when not all info is available
+            MtlsInfo mtlsInfo = autoScalerInfo.getAuthType() == MTLS
+                    ? CertAndKeyProcessing.initializeMtlsInfo()
+                    : INVALID_MTLS_INFO;
+
+            boolean isAutoscalerMtlsOk = autoScalerInfo.getAuthType() == MTLS && mtlsInfo.isValid();
+            boolean isAutoScalerAvailable = autoScalerInfo.getAuthType() == BASIC || isAutoscalerMtlsOk;
+
+            // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
+            String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
+            URI otlpMetricsUri = parseUri(otlpUrl);
+            boolean isOtlpEnabled = otlpMetricsUri != null;
+
+            if (isAutoScalerAvailable) {
+                createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
+            } else {
+                log.info("Auto-scaler basic-auth or mTLS configuration not found, no metrics to auto-scaler.");
+            }
+
+            if (isOtlpEnabled) {
+                createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, otlpMetricsUri, emitters);
+            } else {
+                log.info("OTLP endpoint not found, no metrics to OTLP endpoint.");
+            }
+        } else {
+            // CF env not available
+            if (args.isEnableLogEmitter()) {
+                log.info("CF environment variables not found; activating log emitter only mode.");
+            } else {
+                log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables: CfMetricsAgent will not be activated.");
+                return;
+            }
         }
-        else {
-            log.info("Auto-scaler basic-auth or mTLS configuration not found, no metrics to auto-scaler.");
-        }
-        if (isOtlpEnabled) {
-            createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, otlpMetricsUri, emitters);
-        }
-        else {
-            log.info("OTLP endpoint not found, no metrics to OTLP endpoint.");
-        }
+
+        // Optional log emitter regardless of CF env availability
         if (args.isEnableLogEmitter()) {
             createAndAddLogEmitter(emitters);
-        }
-        else {
+        } else {
             log.info("Log emitter not enabled, no metrics to standard out log.");
         }
 
@@ -234,6 +244,21 @@ public class CfMetricsAgent {
         return otlpMetricsUri;
     }
 
+    private static Initializer createInitializer(RequestsPerSecondType type, Instrumentation instrumentation) {
+        if (type == RequestsPerSecondType.SPRING_REQUEST) {
+            return () -> {
+                log.info("Spring instrumentation enabled");
+                SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
+            };
+        }
+        return () -> log.info("Spring instrumentation not enabled");
+    }
+
+    @SuppressWarnings("PMD.AvoidImplicitlyRecompilingRegex") // is one time call only
+    static String[] splitAgentArgs(String args) {
+        return args == null ? new String[]{} : args.split("[=,]");
+    }
+
     public static void premain(String args, Instrumentation instrumentation){
         log.debug("premain: %s", args == null ? "<no args>" : args);
 
@@ -250,21 +275,6 @@ public class CfMetricsAgent {
         } catch (Exception e) {
             log.error("Error starting CfMetricsAgent.", e);
         }
-    }
-
-    private static Initializer createInitializer(RequestsPerSecondType type, Instrumentation instrumentation) {
-        if (type == RequestsPerSecondType.SPRING_REQUEST) {
-            return () -> {
-                log.info("Spring instrumentation enabled");
-                SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
-            };
-        }
-        return () -> log.info("Spring instrumentation not enabled");
-    }
-
-    @SuppressWarnings("PMD.AvoidImplicitlyRecompilingRegex") // is one time call only
-    static String[] splitAgentArgs(String args) {
-        return args == null ? new String[]{} : args.split("[=,]");
     }
 
     public static void agentmain(String args, Instrumentation instrumentation) {
