@@ -193,7 +193,7 @@
                         </goals>
                         <configuration>
                             <!-- Reduce shaded content to only classes actually used at runtime -->
-                            <minimizeJar>false</minimizeJar>
+                            <minimizeJar>true</minimizeJar>
                             <createDependencyReducedPom>true</createDependencyReducedPom>
                             <!-- Combine all transformers under a single element -->
                             <transformers>
