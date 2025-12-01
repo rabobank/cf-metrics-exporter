@@ -16,38 +16,20 @@
 package io.github.rabobank.cme.rps;
 
 import io.github.rabobank.cme.Logger;
-import java.lang.instrument.ClassFileTransformer;
-import java.lang.instrument.Instrumentation;
-import java.security.ProtectionDomain;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.io.IOException;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.objectweb.asm.*;
 import org.objectweb.asm.commons.AdviceAdapter;
-import org.objectweb.asm.util.TraceClassVisitor;
-import org.objectweb.asm.util.Textifier;
+
+import java.lang.instrument.ClassFileTransformer;
+import java.lang.instrument.Instrumentation;
+import java.net.URL;
+import java.security.ProtectionDomain;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class SpringRequestRPS implements RequestsPerSecond {
     public static final Logger log = Logger.getLogger(SpringRequestRPS.class);
-    private static final boolean DUMP_ASM = Boolean.parseBoolean(System.getProperty("CF_METRICS_EXPORTER_DUMP_ASM", "false"));
-    // Optional file to dump ASM textual output. Defaults to "asm-dump.txt" in working directory.
-    private static final String DUMP_ASM_FILE = System.getProperty(
-            "CF_METRICS_EXPORTER_DUMP_ASM_FILE",
-            Paths.get(System.getProperty("user.dir", "."), "asm-dump.txt").toString()
-    );
-    private static final AtomicBoolean ASM_HEADER_WRITTEN = new AtomicBoolean(false);
+
     private static final AtomicInteger REQUEST_COUNTER = new AtomicInteger(0);
     private static final AtomicLong LAST_RESET_TIME = new AtomicLong(System.currentTimeMillis());
     private static volatile int currentRps = 0;
@@ -62,7 +44,7 @@ public class SpringRequestRPS implements RequestsPerSecond {
             if (TRANSFORMER_INSTALLED.compareAndSet(false, true)) {
                 SpringRequestRpsTransformer transformer = new SpringRequestRpsTransformer();
                 instrumentation.addTransformer(transformer, true);
-                log.info("Spring transformer registered (canRetransform=true)");
+                log.debug("Spring transformer registered (canRetransform=true)");
             } else {
                 log.debug("Spring transformer already registered, skipping duplicate registration");
             }
@@ -89,7 +71,7 @@ public class SpringRequestRPS implements RequestsPerSecond {
                 log.info("Retransform classes not supported by current JVM/instrumentation.");
             }
 
-            log.info("Spring instrumentation initialized.");
+            log.info("Spring instrumentation initialized");
         } catch (Exception e) {
             log.error("Spring instrumentation failed: %s", e);
             // Do not throw, continue running
@@ -152,41 +134,52 @@ public class SpringRequestRPS implements RequestsPerSecond {
 
     // ASM-based transformer
     public static class SpringRequestRpsTransformer implements ClassFileTransformer {
+
+        public static final String DISPATCHER_SERVLET_CLASS_PATH = "org/springframework/web/servlet/DispatcherServlet";
+        public static final String REACTIVE_DISPATCHER_HANDLER_PATH = "org/springframework/web/reactive/DispatcherHandler";
+
         @Override
         public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                                 ProtectionDomain domain, byte[] classfileBuffer) {
-            if ("org/springframework/web/servlet/DispatcherServlet".equals(className)
-                || "org/springframework/web/reactive/DispatcherHandler".equals(className)) {
-                // Log classloader and protection domain details for diagnostics
-                String clName = (loader == null) ? "<bootstrap>" : loader.getClass().getName();
-                String clStr = (loader == null) ? "<bootstrap>" : loader.toString();
-                ClassLoader parent = (loader == null) ? null : loader.getParent();
-                URL codeSource = null;
-                if (domain != null && domain.getCodeSource() != null) {
-                    codeSource = domain.getCodeSource().getLocation();
-                }
+
+            log.trace("Check transform needed of class %s", className);
+
+            if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)
+                    || REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
+                log.debug("Starting transformation of class %s", className);
+
                 if (log.isDebugEnabled()) {
+                    // Log classloader and protection domain details for diagnostics
+                    String clName = (loader == null) ? "<bootstrap>" : loader.getClass().getName();
+                    String clStr = (loader == null) ? "<bootstrap>" : loader.toString();
+                    ClassLoader parent = (loader == null) ? null : loader.getParent();
+                    URL codeSource = null;
+                    if (domain != null && domain.getCodeSource() != null) {
+                        codeSource = domain.getCodeSource().getLocation();
+                    }
                     log.debug("Transform request: class='%s', loader='%s' (%s), parentLoader='%s', codeSource='%s', retransform=%s",
                             className, clName, clStr, (parent == null ? "<none>" : parent.getClass().getName()),
                             String.valueOf(codeSource), String.valueOf(classBeingRedefined != null));
                 }
-            }
-            if ("org/springframework/web/servlet/DispatcherServlet".equals(className)) {
-                // Only instrument doService as requested
-                String method = "doService";
-                log.info("Transforming class '%s' method '%s'", className, method);
-                return transformClass(className, classfileBuffer, method, loader);
-            }
-            if ("org/springframework/web/reactive/DispatcherHandler".equals(className)) {
-                String methodName = "handle";
-                log.info("Transforming class '%s' method '%s'", className, methodName);
-                return transformClass(className, classfileBuffer, methodName, loader);
+
+                if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)) {
+                    // Only instrument doService as requested
+                    String method = "doService";
+                    log.info("Transforming class '%s' method '%s'", className, method);
+                    return transformClass(className, classfileBuffer, method, loader);
+                }
+
+                if (REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
+                    String methodName = "handle";
+                    log.info("Transforming class '%s' method '%s'", className, methodName);
+                    return transformClass(className, classfileBuffer, methodName, loader);
+                }
             }
             return null;
         }
 
         private byte[] transformClass(String internalClassName, byte[] classfileBuffer, String methodName, ClassLoader loader) {
-            log.debug("Starting transformation of %s for method %s", internalClassName, methodName);
+            log.debug("Starting transformation of class %s for method %s", internalClassName, methodName);
             ClassReader classReader = new ClassReader(classfileBuffer);
             // Use COMPUTE_MAXS to avoid ClassWriter frame recomputation that may require
             // application class loading (getCommonSuperClass). We also expand frames in
@@ -194,6 +187,7 @@ public class SpringRequestRPS implements RequestsPerSecond {
             ClassWriter classWriter = new ClassWriter(classReader, ClassWriter.COMPUTE_MAXS);
             ClassVisitor classVisitor = new ClassVisitor(Opcodes.ASM9, classWriter) {
                 private boolean injected;
+
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
                     log.trace("Visiting method %s#%s", internalClassName, name);
@@ -209,27 +203,27 @@ public class SpringRequestRPS implements RequestsPerSecond {
                             protected void onMethodEnter() {
                                 log.debug("Injecting call to incrementRequestCount into %s#%s", internalClassName, methodName);
                                 mv.visitMethodInsn(Opcodes.INVOKESTATIC,
-                                    "io/github/rabobank/cme/rps/SpringRequestRPS",
-                                    "incrementRequestCount",
-                                    "()V",
-                                    false);
+                                        "io/github/rabobank/cme/rps/SpringRequestRPS",
+                                        "incrementRequestCount",
+                                        "()V",
+                                        false);
                                 injected = true;
                             }
                         };
                     }
                     return mv;
                 }
+
                 @Override
                 public void visitEnd() {
                     super.visitEnd();
                     if (injected) {
-                        log.info("Injected call to incrementRequestCount into %s#%s", internalClassName, methodName);
+                        log.trace("Injected call to incrementRequestCount into %s#%s", internalClassName, methodName);
                     } else {
-                        log.info("No injection performed for method '%s' in %s (method not found or not eligible)", methodName, internalClassName);
+                        log.trace("No injection performed for method '%s' in %s (method not found or not eligible)", methodName, internalClassName);
                     }
                 }
             };
-            log.debug("Accept class visitor: " + classVisitor );
             try {
                 // EXPAND_FRAMES is required when using LocalVariablesSorter/AdviceAdapter
                 // to ensure expanded stack map frames are provided to visitors.
@@ -237,55 +231,8 @@ public class SpringRequestRPS implements RequestsPerSecond {
             } catch (Exception t) {
                 log.error("Failed to transform class %s: %s", internalClassName, t);
             }
-            log.debug("After accept class visitor: " + classVisitor );
-            byte[] bytes = classWriter.toByteArray();
-            // Emit ASM dump when debug logging is enabled (was trace-only). This makes it
-            // easier to capture dumps in real runs where only debug is enabled.
-            if (DUMP_ASM) {
-                try {
-                    StringWriter sw = new StringWriter(4096);
-                    PrintWriter pw = new PrintWriter(sw);
-                    TraceClassVisitor tcv = new TraceClassVisitor(null, new Textifier(), pw);
-                    new ClassReader(bytes).accept(tcv, 0);
-                    String clDetails = (loader == null) ? "<bootstrap>" : loader.getClass().getName();
-                    // If file dumping is enabled, write to file (and only a short info log).
-                    appendAsmDumpToFile(internalClassName, methodName, clDetails, sw.toString());
-                } catch (Throwable t) {
-                    log.debug("Failed to print ASM trace for %s: %s", internalClassName, t);
-                }
-            }
-            return bytes;
-        }
-
-        private static void appendAsmDumpToFile(String internalClassName, String methodName, String loader, String asmText) throws IOException {
-            Path path = Paths.get(DUMP_ASM_FILE);
-            // Ensure parent directories exist
-            Path parent = path.getParent();
-            if (parent != null) {
-                try { Files.createDirectories(parent); } catch (IOException ignore) { /* best-effort */ }
-            }
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            StringBuilder sb = new StringBuilder(asmText.length() + 512);
-            if (ASM_HEADER_WRITTEN.compareAndSet(false, true)) {
-                sb.append("==== CF Metrics Exporter ASM Dump ====\n")
-                  .append("file: ").append(path.toAbsolutePath()).append('\n')
-                  .append("created: ").append(timestamp).append('\n')
-                  .append("=====================================\n\n");
-            }
-            sb.append("---- class=").append(internalClassName)
-              .append(", method=").append(methodName)
-              .append(", loader=").append(loader)
-              .append(", time=").append(timestamp)
-              .append(" ----\n");
-            sb.append(asmText).append('\n')
-              .append("---- end ").append(internalClassName).append('#').append(methodName).append(" ----\n\n");
-
-            byte[] out = sb.toString().getBytes(StandardCharsets.UTF_8);
-            // Synchronize to keep multi-threaded agent writes ordered
-            synchronized (SpringRequestRPS.class) {
-                Files.write(path, out, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            }
-            log.info("ASM dump written to %s (%s#%s)", path.toAbsolutePath().toString(), internalClassName, methodName);
+            return classWriter.toByteArray();
         }
     }
+
 }
