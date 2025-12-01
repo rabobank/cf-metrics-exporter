@@ -69,32 +69,26 @@ jobs:
           TAG: ${{ steps.prep.outputs.tag }}
         run: |
           set -euo pipefail
-          # Some environments define GREP_OPTIONS with unsupported flags, causing
-          # errors like: "grep: unknown devices method". Ensure a clean grep env.
-          unset GREP_OPTIONS GREP_COLOR || true
+
           # Update refs for origin/main without touching the working tree
           git fetch --quiet origin main
 
           desired_line="-Drevision=${TAG}"
           # Verify the file exists at origin/main without checking out
           if git cat-file -e "origin/main:.mvn/maven.config" 2>/dev/null; then
-            match=false
-            # Read file, normalize CRLF by removing any \r characters, and compare line-by-line
-            while IFS= read -r line; do
-              # strip a trailing carriage return if present (CRLF compatibility)
-              line="${line%$'\r'}"
-              if [[ "$line" == "$desired_line" ]]; then
-                match=true
-                break
-              fi
-            done < <(git show "origin/main:.mvn/maven.config")
-
-            if [[ "$match" == "true" ]]; then
+            # Read entire file and normalize CRLF by removing any \r characters.
+            # Newline-agnostic matching: accept either exact single-line match (no trailing newline)
+            # or a full-line match among potentially multiple lines.
+            content=$(git show "origin/main:.mvn/maven.config" | sed $'s/\r//g')
+            # Wrap content with newlines to make line-boundary matching work even if
+            # the file lacks a trailing newline.
+            wrapped_content=$'\n'"$content"$'\n'
+            if [[ "$wrapped_content" == *$'\n'"$desired_line"$'\n'* ]]; then
               echo "OK: .mvn/maven.config at origin/main matches the intended tag (${TAG})."
             else
               echo "ERROR: .mvn/maven.config at origin/main does not contain the expected line: $desired_line" >&2
               echo "Observed contents (normalized for CRLF):" >&2
-              git show "origin/main:.mvn/maven.config" | sed $'s/\r//g' >&2 || true
+              { git show "origin/main:.mvn/maven.config" | sed $'s/\r//g'; echo; } >&2 || true
               echo "Please update the file on your branch and commit the change, then re-run this workflow." >&2
               exit 1
             fi
