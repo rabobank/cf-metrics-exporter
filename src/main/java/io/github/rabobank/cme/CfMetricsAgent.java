@@ -96,8 +96,8 @@ public class CfMetricsAgent {
         boolean cfEnvAvailable = vcapApplicationJson != null && vcapServicesJson != null && cfInstanceIndex != null;
 
         List<MetricEmitter> emitters = new ArrayList<>();
-        ApplicationInfo applicationInfo = null;
-        AutoScalerInfo autoScalerInfo = null;
+        ApplicationInfo applicationInfo;
+        AutoScalerInfo autoScalerInfo;
 
         if (cfEnvAvailable) {
             applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);

@@ -1,11 +1,8 @@
----
-name: Prepare Release (pre-tag)
-
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create (e.g., v1.2.3 or 1.2.3)"
+        description: "Release tag to create (e.g., 1.2.3) — do NOT prefix with 'v'"
         required: true
         type: string
 
@@ -15,10 +12,10 @@ defaults:
 
 jobs:
   prepare:
-    name: Prepare release commit and tag
+    name: Validate release inputs (no commits)
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -40,10 +37,13 @@ jobs:
           # Normalize whitespace
           TAG="${TAG//[[:space:]]/}"
 
-          # Basic validation: allow optional leading 'v' and 1-3 numeric segments
-          VERSION_NO_V="${TAG#v}"
-          if [[ ! "$VERSION_NO_V" =~ ^[0-9]+(\.[0-9]+){0,2}($|[-+]) ]]; then
-            echo "Provided tag '$TAG' does not look like a semantic version (e.g., v1.2.3)." >&2
+          # Validation: tags MUST NOT start with 'v' and must look like a semantic version
+          if [[ "$TAG" =~ ^v ]]; then
+            echo "Provided tag '$TAG' is prefixed with 'v'. This repository requires tags without a leading 'v' (e.g., 1.2.3)." >&2
+            exit 1
+          fi
+          if [[ ! "$TAG" =~ ^[0-9]+(\.[0-9]+){0,2}($|[-+]) ]]; then
+            echo "Provided tag '$TAG' does not look like a semantic version (e.g., 1.2.3)." >&2
             exit 1
           fi
 
@@ -60,66 +60,30 @@ jobs:
             exit 1
           fi
 
-      - name: Create release branch from main
+      - name: Verify .mvn/maven.config matches the intended tag
         env:
           TAG: ${{ steps.prep.outputs.tag }}
         run: |
           set -euo pipefail
           git fetch origin main:main
-          git checkout -b "release/${TAG}" main
-
-      - name: Write revision to .mvn/maven.config
-        env:
-          TAG: ${{ steps.prep.outputs.tag }}
-        run: |
-          set -euo pipefail
+          git checkout main
           desired_line="-Drevision=${TAG}"
-          mkdir -p .mvn
-          # Only update if needed
           if [[ -f .mvn/maven.config ]] && grep -qxF "$desired_line" .mvn/maven.config; then
-            echo "maven.config already contains ${desired_line}; no file change needed."
+            echo "OK: .mvn/maven.config matches the intended tag (${TAG})."
           else
-            echo "$desired_line" > .mvn/maven.config
+            echo "ERROR: .mvn/maven.config does not contain the expected line: $desired_line" >&2
+            echo "Please update the file on your branch and commit the change, then re-run this workflow." >&2
+            exit 1
           fi
 
-      - name: Commit change if needed
+      - name: Next steps (manual)
         env:
           TAG: ${{ steps.prep.outputs.tag }}
         run: |
-          set -euo pipefail
-          # Configure Git author identity for CI commits
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .mvn/maven.config
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): set revision to ${TAG}"
-          else
-            echo "No changes to commit (revision already ${TAG})."
-          fi
-
-      - name: Create and push tag
-        env:
-          TAG: ${{ steps.prep.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # Create an annotated tag at the current HEAD (release/<tag>)
-          git tag -a "${TAG}" -m "Release ${TAG}"
-          # Push both the branch (optional) and the tag
-          git push origin "HEAD:refs/heads/release/${TAG}" || true
-          git push origin "refs/tags/${TAG}"
-
-      - name: Create draft GitHub Release
-        uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b // v1.20.0
-        with:
-          tag: ${{ steps.prep.outputs.tag }}
-          name: ${{ steps.prep.outputs.tag }}
-          bodyFile: CHANGELOG.md
-          draft: true
-          allowUpdates: true
-          generateReleaseNotes: true
-
-      - name: Next steps
-        run: |
-          echo "Draft release created for tag '${{ steps.prep.outputs.tag }}'."
-          echo "Review the draft release and click 'Publish' when ready."
-          echo "On publish, the existing Release workflow will deploy and bump main to the next minor -SNAPSHOT."
+          echo "Validation succeeded. Proceed with manual tagging and draft release:"
+          echo "  git checkout main"
+          echo "  git pull --ff-only"
+          echo "  git tag -a '${TAG}' -m 'Release ${TAG}'"
+          echo "  git push origin 'refs/tags/${TAG}'"
+          echo "Then create a draft GitHub Release for ${TAG} (or publish directly) using CHANGELOG.md as needed."
+          echo "When you publish the GitHub Release, the Release workflow will build and deploy."

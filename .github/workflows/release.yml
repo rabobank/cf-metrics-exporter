@@ -42,35 +42,34 @@ jobs:
           git fetch --all --tags -f
           git checkout tags/${{ github.event.release.tag_name }} -b ${{ github.event.release.tag_name }}-tmp-branch
 
-      - name: Sync revision in .mvn/maven.config with tag and retag
+      - name: Verify .mvn/maven.config revision matches tag
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
 
-          desired_line="-Drevision=${TAG}"
-          if [[ -f .mvn/maven.config ]] && grep -qxF "$desired_line" .mvn/maven.config; then
-            echo "maven.config already contains the release revision (${TAG}); skipping sync and re-tag."
-            exit 0
+          # Enforce tags must NOT start with 'v'
+          if [[ "$TAG" =~ ^v ]]; then
+            echo "ERROR: Release tag '$TAG' is prefixed with 'v'. Tags must not start with 'v' (use e.g., 1.2.3)." >&2
+            exit 1
           fi
 
-          echo "$desired_line" > .mvn/maven.config
-          # Configure the Git author identity so this CI job can create a commit.
-          # Git refuses to commit if user.name/user.email are not set.
-          # The email below follows GitHub's noreply pattern:
-          #   <user_id>+github-actions[bot]@users.noreply.github.com
-          # The numeric prefix (41898282) is the GitHub user ID of the actions bot.
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .mvn/maven.config
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): set revision to ${TAG}"
-            # Move tag to include this commit so the tag contains the synchronized revision file
-            git tag -fa "${TAG}" -m "Release ${TAG}"
-            git push origin ":refs/tags/${TAG}" || true
-            git push origin "${TAG}"
+          desired_line="-Drevision=${TAG}"
+          if [[ -f .mvn/maven.config ]] && grep -qxF "$desired_line" .mvn/maven.config; then
+            echo "maven.config contains the expected release revision (${TAG}). Proceeding with release."
+            exit 0
           else
-            echo "No change detected after writing maven.config; skipping re-tag."
+            echo "ERROR: .mvn/maven.config does not match the release tag." >&2
+            echo "Expected a line with: $desired_line" >&2
+            echo >&2
+            echo "Please update .mvn/maven.config in the repository so it matches the tag and re-run the release." >&2
+            echo "After the release, remember to manually bump the main branch to the next -SNAPSHOT version, e.g.:" >&2
+            echo "  # example (adjust version to your next development version)" >&2
+            echo "  git checkout main" >&2
+            echo "  echo '-Drevision=X.Y.Z-SNAPSHOT' > .mvn/maven.config" >&2
+            echo "  git commit -am 'chore: set next development version to X.Y.Z-SNAPSHOT'" >&2
+            echo "  git push origin main" >&2
+            exit 1
           fi
 
       - name: Deploy
@@ -87,37 +86,12 @@ jobs:
           bodyFile: CHANGELOG.md
           allowUpdates: true
           makeLatest: true
-
-      - name: Bump main branch to next minor SNAPSHOT
-        env:
-          TAG: ${{ github.event.release.tag_name }}
+      
+      - name: Reminder to bump main to next SNAPSHOT (manual)
         run: |
-          set -euo pipefail
-          # Derive next minor version from the release tag
-          VERSION="${TAG#v}"
-          if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}($|[-+]) ]]; then
-            echo "Release tag '$TAG' is not a standard numeric version; skipping version bump on main." >&2
-            exit 0
-          fi
-          MAJOR=$(echo "$VERSION" | awk -F. '{print $1}')
-          MINOR=$(echo "$VERSION" | awk -F. '{print ($2==""?0:$2)}')
-          # Increment MINOR, reset PATCH to 0
-          NEXT_MINOR=$((MINOR + 1))
-          NEXT_SNAPSHOT="${MAJOR}.${NEXT_MINOR}.0-SNAPSHOT"
-
-          # Switch to main and update .mvn/maven.config
-          git fetch origin main:main
-          git checkout main
-          echo "-Drevision=${NEXT_SNAPSHOT}" > .mvn/maven.config
-
-          # Configure author for CI commits (required by git)
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add .mvn/maven.config
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): set next development version to ${NEXT_SNAPSHOT}"
-            git push origin HEAD:main
-          else
-            echo "No changes to commit on main (version already ${NEXT_SNAPSHOT})."
-          fi
+          echo "Reminder: After this release, manually bump the main branch to the next -SNAPSHOT version."
+          echo "Steps (example):"
+          echo "  git checkout main"
+          echo "  echo '-Drevision=X.Y.Z-SNAPSHOT' > .mvn/maven.config"
+          echo "  git commit -am 'chore: set next development version to X.Y.Z-SNAPSHOT'"
+          echo "  git push origin main"
