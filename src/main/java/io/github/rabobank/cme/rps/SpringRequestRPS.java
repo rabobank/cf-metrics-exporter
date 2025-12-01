@@ -111,14 +111,6 @@ public class SpringRequestRPS implements RequestsPerSecond {
 
     public static void incrementRequestCount() {
         REQUEST_COUNTER.incrementAndGet();
-        if (log.isTraceEnabled()) {
-            // Log call-site details to verify that injected calls are executed
-            StackTraceElement[] st = Thread.currentThread().getStackTrace();
-            // Indexes: 0=getStackTrace, 1=this method, 2=caller (instrumented method)
-            StackTraceElement caller = st.length > 2 ? st[2] : null;
-            String callerInfo = caller != null ? (caller.getClassName() + "#" + caller.getMethodName()) : "unknown";
-            log.trace("incrementRequestCount() invoked by %s", callerInfo);
-        }
     }
 
     // ASM-based transformer
@@ -131,7 +123,6 @@ public class SpringRequestRPS implements RequestsPerSecond {
         public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                                 ProtectionDomain domain, byte[] classfileBuffer) {
 
-            log.trace("Check transform needed of class %s", className);
 
             if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)
                     || REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
