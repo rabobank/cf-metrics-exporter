@@ -66,6 +66,12 @@
 
     <dependencies>
         <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <version>1.15.10</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>${slf4j.version}</version>
@@ -116,6 +122,11 @@
             <artifactId>asm-commons</artifactId>
             <version>${asm.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -132,6 +143,7 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
+                            <skip>${skipTests}</skip>
                             <executable>bash</executable>
                             <arguments>
                                 <argument>${basedir}/mtls-certs/mtls-certificate-setup.sh</argument>
@@ -187,7 +199,7 @@
                         </goals>
                         <configuration>
                             <!-- Reduce shaded content to only classes actually used at runtime -->
-                            <minimizeJar>true</minimizeJar>
+                            <minimizeJar>false</minimizeJar>
                             <createDependencyReducedPom>true</createDependencyReducedPom>
                             <!-- Combine all transformers under a single element -->
                             <transformers>
@@ -236,6 +248,11 @@
                     <dependency>
                         <groupId>org.ow2.asm</groupId>
                         <artifactId>asm-commons</artifactId>
+                        <version>${asm.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.ow2.asm</groupId>
+                        <artifactId>asm-util</artifactId>
                         <version>${asm.version}</version>
                     </dependency>
                 </dependencies>

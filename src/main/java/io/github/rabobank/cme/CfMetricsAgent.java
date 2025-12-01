@@ -244,6 +244,21 @@ public class CfMetricsAgent {
         return otlpMetricsUri;
     }
 
+    private static Initializer createInitializer(RequestsPerSecondType type, Instrumentation instrumentation) {
+        if (type == RequestsPerSecondType.SPRING_REQUEST) {
+            return () -> {
+                log.info("Spring instrumentation enabled");
+                SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
+            };
+        }
+        return () -> log.info("Spring instrumentation not enabled");
+    }
+
+    @SuppressWarnings("PMD.AvoidImplicitlyRecompilingRegex") // is one time call only
+    static String[] splitAgentArgs(String args) {
+        return args == null ? new String[]{} : args.split("[=,]");
+    }
+
     public static void premain(String args, Instrumentation instrumentation){
         log.debug("premain: %s", args == null ? "<no args>" : args);
 
@@ -260,21 +275,6 @@ public class CfMetricsAgent {
         } catch (Exception e) {
             log.error("Error starting CfMetricsAgent.", e);
         }
-    }
-
-    private static Initializer createInitializer(RequestsPerSecondType type, Instrumentation instrumentation) {
-        if (type == RequestsPerSecondType.SPRING_REQUEST) {
-            return () -> {
-                log.info("Spring instrumentation enabled");
-                SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
-            };
-        }
-        return () -> log.info("Spring instrumentation not enabled");
-    }
-
-    @SuppressWarnings("PMD.AvoidImplicitlyRecompilingRegex") // is one time call only
-    static String[] splitAgentArgs(String args) {
-        return args == null ? new String[]{} : args.split("[=,]");
     }
 
     public static void agentmain(String args, Instrumentation instrumentation) {
