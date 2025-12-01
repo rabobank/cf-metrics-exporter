@@ -55,20 +55,33 @@ jobs:
           fi
 
           desired_line="-Drevision=${TAG}"
-          if [[ -f .mvn/maven.config ]] && grep -qxF "$desired_line" .mvn/maven.config; then
-            echo "maven.config contains the expected release revision (${TAG}). Proceeding with release."
-            exit 0
+          # Verify the file exists in the checked-out tag (HEAD) without relying on the working tree
+          if git cat-file -e "HEAD:.mvn/maven.config" 2>/dev/null; then
+            # Read entire file from HEAD and normalize CRLF by removing any \r characters.
+            # Newline-agnostic matching: accept either exact single-line match (no trailing newline)
+            # or a full-line match among potentially multiple lines.
+            content=$(git show "HEAD:.mvn/maven.config" | sed $'s/\r//g')
+            # Wrap content with newlines to make line-boundary matching work even if
+            # the file lacks a trailing newline.
+            wrapped_content=$'\n'"$content"$'\n'
+            if [[ "$wrapped_content" == *$'\n'"$desired_line"$'\n'* ]]; then
+              echo "OK: .mvn/maven.config in the release tag matches the tag (${TAG}). Proceeding with release."
+            else
+              echo "ERROR: .mvn/maven.config in the release tag does not contain the expected line: $desired_line" >&2
+              echo "Observed contents (normalized for CRLF):" >&2
+              { git show "HEAD:.mvn/maven.config" | sed $'s/\r//g'; echo; } >&2 || true
+              echo "Please update .mvn/maven.config in the repository so it matches the tag and re-run the release." >&2
+              echo "After the release, remember to manually bump the main branch to the next -SNAPSHOT version, e.g.:" >&2
+              echo "  # example (adjust version to your next development version)" >&2
+              echo "  git checkout main" >&2
+              echo "  echo '-Drevision=X.Y.Z-SNAPSHOT' > .mvn/maven.config" >&2
+              echo "  git commit -am 'chore: set next development version to X.Y.Z-SNAPSHOT'" >&2
+              echo "  git push origin main" >&2
+              exit 1
+            fi
           else
-            echo "ERROR: .mvn/maven.config does not match the release tag." >&2
-            echo "Expected a line with: $desired_line" >&2
-            echo >&2
-            echo "Please update .mvn/maven.config in the repository so it matches the tag and re-run the release." >&2
-            echo "After the release, remember to manually bump the main branch to the next -SNAPSHOT version, e.g.:" >&2
-            echo "  # example (adjust version to your next development version)" >&2
-            echo "  git checkout main" >&2
-            echo "  echo '-Drevision=X.Y.Z-SNAPSHOT' > .mvn/maven.config" >&2
-            echo "  git commit -am 'chore: set next development version to X.Y.Z-SNAPSHOT'" >&2
-            echo "  git push origin main" >&2
+            echo "ERROR: .mvn/maven.config not found in the release tag (HEAD)." >&2
+            echo "Ensure the tag contains the file with: $desired_line" >&2
             exit 1
           fi
 
