@@ -19,7 +19,7 @@ So the longer the interval, the fewer peaks in RPS over time are reported.
 
 Transform these classes with ByteBuddy on SpringBoot API to count request/reply:
 
-    * org.springframework.web.servlet.DispatcherServlet#handle
+    * org.springframework.web.servlet.DispatcherServlet#doService
     * org.springframework.web.reactive.DispatcherHandler#handle
 
 No need to enable Tomcat MBeans via application settings
