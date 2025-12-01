@@ -121,17 +121,6 @@ public class SpringRequestRPS implements RequestsPerSecond {
         }
     }
 
-    // test helpers (package-private) – intentionally no public API impact
-    static void resetForTest() {
-        REQUEST_COUNTER.set(0);
-        LAST_RESET_TIME.set(System.currentTimeMillis());
-        currentRps = 0;
-    }
-
-    static int getRequestCountForTest() {
-        return REQUEST_COUNTER.get();
-    }
-
     // ASM-based transformer
     public static class SpringRequestRpsTransformer implements ClassFileTransformer {
 

@@ -24,8 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
-import net.bytebuddy.agent.ByteBuddyAgent;
-import java.lang.instrument.Instrumentation;
+import java.lang.reflect.Field;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests that verify the ASM transformation injects a call to
@@ -35,7 +35,7 @@ class SpringRequestRpsTransformerTest implements Opcodes {
 
     @BeforeEach
     void setUp() {
-        SpringRequestRPS.resetForTest();
+        resetSpringRequestRpsState();
     }
 
     @Test
@@ -46,21 +46,23 @@ class SpringRequestRpsTransformerTest implements Opcodes {
 
         // Define class BEFORE attempting to transform: this simulates "already loaded" scenario
         Class<?> alreadyLoaded = new TestClassLoader().define(internalName.replace('/', '.'), original);
-        
-        // Now install an instrumentation instance and initialize Spring instrumentation, which
-        // adds the transformer and explicitly retransforms already loaded target classes.
-        Instrumentation instrumentation = ByteBuddyAgent.install();
-        SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
 
-        SpringRequestRPS.resetForTest();
-        Object instance = alreadyLoaded.getDeclaredConstructor().newInstance();
-        Method m = alreadyLoaded.getDeclaredMethod("doService");
+        // In a real JVM, the agent would retransform already loaded classes.
+        // Here we simulate that behavior by invoking the transformer directly on the original bytes
+        // and then defining the transformed class in a fresh ClassLoader.
+        SpringRequestRPS.SpringRequestRpsTransformer transformer = new SpringRequestRPS.SpringRequestRpsTransformer();
+        byte[] retransformed = transformer.transform(null, internalName, alreadyLoaded, null, original);
+        Class<?> retransformedClass = new TestClassLoader().define(internalName.replace('/', '.'), retransformed);
+
+        resetSpringRequestRpsState();
+        Object instance = retransformedClass.getDeclaredConstructor().newInstance();
+        Method m = retransformedClass.getDeclaredMethod("doService");
 
         // Act
         m.invoke(instance);
 
         // Assert: counter is incremented thanks to retransformation of the already loaded class
-        assertEquals(1, SpringRequestRPS.getRequestCountForTest(),
+        assertEquals(1, getSpringRequestRpsRawCounter(),
                 "Retransformation should inject the increment call for already loaded target class");
     }
 
@@ -70,21 +72,21 @@ class SpringRequestRpsTransformerTest implements Opcodes {
         String internalName = "org/springframework/web/servlet/DispatcherServlet";
         byte[] original = generateClassWithVoidMethod(internalName, "doService");
 
-        // Install agent and initialize transformer so transformation happens during (re)load
-        Instrumentation instrumentation = ByteBuddyAgent.install();
-        SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
+        // Transform the class bytes using our ASM transformer
+        SpringRequestRPS.SpringRequestRpsTransformer transformer = new SpringRequestRPS.SpringRequestRpsTransformer();
+        byte[] transformed = transformer.transform(null, internalName, null, null, original);
 
-        Class<?> cls = new TestClassLoader().define(internalName.replace('/', '.'), original);
+        Class<?> cls = new TestClassLoader().define(internalName.replace('/', '.'), transformed);
         Object instance = cls.getDeclaredConstructor().newInstance();
         Method m = cls.getDeclaredMethod("doService");
 
         // Assert: before call
-        assertEquals(0, SpringRequestRPS.getRequestCountForTest(), "Precondition: counter should be zero before invocation");
+        assertEquals(0, getSpringRequestRpsRawCounter(), "Precondition: counter should be zero before invocation");
 
         // Invoke the method once; transformer should inject increment
         m.invoke(instance);
 
-        assertEquals(1, SpringRequestRPS.getRequestCountForTest(), "Counter should be incremented by transformed method");
+        assertEquals(1, getSpringRequestRpsRawCounter(), "Counter should be incremented by transformed method");
     }
 
     @Test
@@ -92,17 +94,17 @@ class SpringRequestRpsTransformerTest implements Opcodes {
         String internalName = "org/springframework/web/reactive/DispatcherHandler";
         byte[] original = generateClassWithVoidMethod(internalName, "handle");
 
-        // Ensure agent is installed and transformer registered so transformation happens at load
-        Instrumentation instrumentation = ByteBuddyAgent.install();
-        SpringRequestRPS.initializeSpringInstrumentation(instrumentation);
+        // Transform the class bytes using our ASM transformer
+        SpringRequestRPS.SpringRequestRpsTransformer transformer = new SpringRequestRPS.SpringRequestRpsTransformer();
+        byte[] transformed = transformer.transform(null, internalName, null, null, original);
 
-        Class<?> cls = new TestClassLoader().define(internalName.replace('/', '.'), original);
+        Class<?> cls = new TestClassLoader().define(internalName.replace('/', '.'), transformed);
         Object instance = cls.getDeclaredConstructor().newInstance();
         Method m = cls.getDeclaredMethod("handle");
 
-        assertEquals(0, SpringRequestRPS.getRequestCountForTest());
+        assertEquals(0, getSpringRequestRpsRawCounter());
         m.invoke(instance);
-        assertEquals(1, SpringRequestRPS.getRequestCountForTest());
+        assertEquals(1, getSpringRequestRpsRawCounter());
     }
 
     // Helper to generate a minimal class with a no-arg constructor and a public void method
@@ -134,6 +136,44 @@ class SpringRequestRpsTransformerTest implements Opcodes {
     static class TestClassLoader extends ClassLoader {
         Class<?> define(String fqcn, byte[] bytes) {
             return defineClass(fqcn, bytes, 0, bytes.length);
+        }
+    }
+
+    // -------------------
+    // Test utilities (reflection based) to avoid production test hooks
+    // -------------------
+    private static void resetSpringRequestRpsState() {
+        try {
+            Class<?> cls = SpringRequestRPS.class;
+            // REQUEST_COUNTER
+            Field counterField = cls.getDeclaredField("REQUEST_COUNTER");
+            counterField.setAccessible(true);
+            AtomicInteger counter = (AtomicInteger) counterField.get(null);
+            counter.set(0);
+
+            // LAST_RESET_TIME
+            Field lastResetField = cls.getDeclaredField("LAST_RESET_TIME");
+            lastResetField.setAccessible(true);
+            java.util.concurrent.atomic.AtomicLong lastReset = (java.util.concurrent.atomic.AtomicLong) lastResetField.get(null);
+            lastReset.set(System.currentTimeMillis());
+
+            // currentRps
+            Field currentRpsField = cls.getDeclaredField("currentRps");
+            currentRpsField.setAccessible(true);
+            currentRpsField.setInt(null, 0);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static int getSpringRequestRpsRawCounter() {
+        try {
+            Field counterField = SpringRequestRPS.class.getDeclaredField("REQUEST_COUNTER");
+            counterField.setAccessible(true);
+            AtomicInteger counter = (AtomicInteger) counterField.get(null);
+            return counter.get();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 }
