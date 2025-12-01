@@ -371,13 +371,6 @@
                             <goal>clean</goal>
                         </goals>
                     </execution>
-                    <execution>
-                        <id>flatten.deploy</id>
-                        <phase>deploy</phase>
-                        <goals>
-                            <goal>flatten</goal>
-                        </goals>
-                    </execution>
                 </executions>
             </plugin>
         </plugins>
