@@ -106,18 +106,11 @@ public class CfMetricsAgent {
             applicationInfo = extractApplicationInfo(vcapApplicationJson, cfInstanceIndex);
             autoScalerInfo = extractMetricsServerInfo(vcapServicesJson);
 
-            // can return invalid mtlsInfo when not all info is available
-            MtlsInfo mtlsInfo = autoScalerInfo.getAuthType() == MTLS
-                    ? CertAndKeyProcessing.initializeMtlsInfo()
-                    : INVALID_MTLS_INFO;
+            MtlsInfo mtlsInfo = getMtlsInfo(autoScalerInfo);
 
-            boolean isAutoscalerMtlsOk = autoScalerInfo.getAuthType() == MTLS && mtlsInfo.isValid();
-            boolean isAutoScalerAvailable = autoScalerInfo.getAuthType() == BASIC || isAutoscalerMtlsOk;
+            boolean isAutoScalerAvailable = isAutoScalerAvailable(autoScalerInfo, mtlsInfo);
 
-            // If OTLP metrics endpoint env var is present, schedule OTLP exporter as well
-            String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
-            URI otlpMetricsUri = parseUri(otlpUrl);
-            boolean isOtlpEnabled = otlpMetricsUri != null;
+            URI otlpMetricsUri = fetchOtlpMetricsUriFromEnv();
 
             if (isAutoScalerAvailable) {
                 createAndAddCustomMetricsSender(autoScalerInfo, applicationInfo, mtlsInfo, emitters);
@@ -125,19 +118,16 @@ public class CfMetricsAgent {
                 log.info("Auto-scaler basic-auth or mTLS configuration not found, no metrics to auto-scaler.");
             }
 
-            if (isOtlpEnabled) {
+            if (otlpMetricsUri != null) {
                 createAndAddOtlpExporter(args.environmentVarName(), applicationInfo, otlpMetricsUri, emitters);
             } else {
                 log.info("OTLP endpoint not found, no metrics to OTLP endpoint.");
             }
+        } else if (args.isEnableLogEmitter()) {
+            log.info("CF environment variables not found; activating log emitter only mode.");
         } else {
-            // CF env not available
-            if (args.isEnableLogEmitter()) {
-                log.info("CF environment variables not found; activating log emitter only mode.");
-            } else {
-                log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables: CfMetricsAgent will not be activated.");
-                return;
-            }
+            log.error("VCAP_APPLICATION,VCAP_SERVICES or CF_INSTANCE_INDEX is not available in env variables: CfMetricsAgent will not be activated.");
+            return;
         }
 
         // Optional log emitter regardless of CF env availability
@@ -149,34 +139,53 @@ public class CfMetricsAgent {
 
         if (emitters.isEmpty()) {
             log.info("No metrics emitters configured, will not initialize agent.");
+            return;
         }
-        else {
-            initializer.initialize();
 
-            // Create a single thread scheduler to send metrics
-            @SuppressWarnings({"PMD.CloseResource", "java:S2095"}) // no need to close this, see shutdown hook
-            ScheduledExecutorService scheduler =
-                    Executors.newSingleThreadScheduledExecutor(r -> {
-                        Thread thread = new Thread(r);
-                        thread.setName("cf-metrics-scheduler");
-                        thread.setDaemon(true);
-                        return thread;
-                    });
+        initializer.initialize();
 
-            RequestsPerSecond requestsPerSecond = createRequestsPerSecond(args.type());
+        // Create a single thread scheduler to send metrics
+        @SuppressWarnings({"PMD.CloseResource", "java:S2095"}) // no need to close this, see shutdown hook
+        ScheduledExecutorService scheduler =
+                Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread thread = new Thread(r);
+                    thread.setName("cf-metrics-scheduler");
+                    thread.setDaemon(true);
+                    return thread;
+                });
 
-            MetricsProcessor metricsProcessor = new MetricsProcessor(requestsPerSecond, emitters);
+        RequestsPerSecond requestsPerSecond = createRequestsPerSecond(args.type());
 
-            // Schedule sending of metrics
-            ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(metricsProcessor::tick, 30, args.intervalSeconds(), TimeUnit.SECONDS);
+        MetricsProcessor metricsProcessor = new MetricsProcessor(requestsPerSecond, emitters);
 
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                log.info("Shutdown hook triggered, cancelling scheduled task.");
-                scheduledAutoscaler.cancel(true);
-                scheduler.shutdownNow();
-                log.info("Shutdown complete.");
-            }));
+        // Schedule sending of metrics
+        ScheduledFuture<?> scheduledAutoscaler = scheduler.scheduleAtFixedRate(metricsProcessor::tick, 30, args.intervalSeconds(), TimeUnit.SECONDS);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Shutdown hook triggered, cancelling scheduled task.");
+            scheduledAutoscaler.cancel(true);
+            scheduler.shutdownNow();
+            log.info("Shutdown complete.");
+        }));
+    }
+
+    private MtlsInfo getMtlsInfo(AutoScalerInfo autoScalerInfo) {
+        if (autoScalerInfo.getAuthType() == MTLS) {
+            return CertAndKeyProcessing.initializeMtlsInfo();
         }
+        return INVALID_MTLS_INFO;
+    }
+
+    private boolean isAutoScalerAvailable(AutoScalerInfo autoScalerInfo, MtlsInfo mtlsInfo) {
+        if (autoScalerInfo.getAuthType() == BASIC) {
+            return true;
+        }
+        return autoScalerInfo.getAuthType() == MTLS && mtlsInfo.isValid();
+    }
+
+    private URI fetchOtlpMetricsUriFromEnv() {
+        String otlpUrl = System.getenv("MANAGEMENT_OTLP_METRICS_EXPORT_URL");
+        return parseUriFromUrl(otlpUrl, "Invalid OTLP metrics endpoint URL: %s, OTLP metric sending disabled.");
     }
 
     private void createAndAddLogEmitter(List<MetricEmitter> emitters) {
@@ -229,22 +238,23 @@ public class CfMetricsAgent {
     }
 
     /**
-     * @param otlpUrl the url in String format
+     * @param inputUrl the url in String format
+     * @param errorMessageWithInputUrlReplacement an error message with a placeholder for the inputUrl, e.g. "Invalid URL: %s"
      * @return null if the given URL is invalid
      */
-    private static URI parseUri(String otlpUrl) {
-        if (otlpUrl == null || otlpUrl.isEmpty()) {
+    private static URI parseUriFromUrl(String inputUrl, String errorMessageWithInputUrlReplacement) {
+        if (inputUrl == null || inputUrl.isEmpty()) {
             return null;
         }
 
-        final URI otlpMetricsUri;
+        final URI parsedUri;
         try {
-            otlpMetricsUri = new URI(otlpUrl);
+            parsedUri = new URI(inputUrl);
         } catch (URISyntaxException e) {
-            log.error("Invalid OTLP metrics endpoint URL: %s, OTLP metric sending disabled.", otlpUrl);
+            log.error(errorMessageWithInputUrlReplacement, inputUrl);
             return null;
         }
-        return otlpMetricsUri;
+        return parsedUri;
     }
 
     private static Initializer createInitializer(RequestsPerSecondType type, Instrumentation instrumentation) {
