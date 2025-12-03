@@ -142,7 +142,7 @@ public class SpringRequestRPS implements RequestsPerSecond {
             }
 
             // this code works only with two expected classes, as seen in the 'if' check above
-            String methodName = DISPATCHER_SERVLET_CLASS_PATH.equals(className) ? "doDispatch" : "handle";
+            String methodName = DISPATCHER_SERVLET_CLASS_PATH.equals(className) ? "doService" : "handle";
 
             log.info("Transforming class '%s' method '%s'", className, methodName);
             return transformClass(className, classfileBuffer, methodName);
