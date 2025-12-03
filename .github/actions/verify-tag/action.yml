@@ -1,0 +1,81 @@
+name: Verify Maven revision matches tag
+description: Ensures .mvn/maven.config contains -Drevision=<tag> at a given git ref
+inputs:
+  tag:
+    description: "Release tag (must not start with 'v')"
+    required: true
+  ref:
+    description: "Git ref to inspect (e.g., HEAD, origin/main)"
+    required: false
+    default: HEAD
+runs:
+  using: composite
+  steps:
+    - name: Verify .mvn/maven.config revision matches tag at ref
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        REF: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+        
+        # Constants
+        MAVEN_CONFIG_PATH=".mvn/maven.config"
+        REMOTE_PREFIX="origin/"
+        
+        validate_tag() {
+          local tag="$1"
+          if [[ -z "${tag}" ]]; then
+            echo "ERROR: No tag provided to verify-tag action." >&2
+            exit 1
+          fi
+          # Enforce tags must NOT start with 'v'
+          if [[ "$tag" =~ ^v ]]; then
+            echo "ERROR: Tag '$tag' is prefixed with 'v'. Tags must not start with 'v' (use e.g., 1.2.3)." >&2
+            exit 1
+          fi
+        }
+        
+        fetch_remote_ref_if_needed() {
+          local ref="$1"
+          if [[ "$ref" == "${REMOTE_PREFIX}"* ]]; then
+            local remote_ref=${ref#${REMOTE_PREFIX}}
+            git fetch --quiet origin "$remote_ref"
+          fi
+        }
+        
+        verify_maven_config() {
+          local ref="$1"
+          local tag="$2"
+          local desired_line="-Drevision=${tag}"
+          local path_ref="${ref}:${MAVEN_CONFIG_PATH}"
+        
+          if ! git cat-file -e "$path_ref" 2>/dev/null; then
+            echo "ERROR: ${MAVEN_CONFIG_PATH} not found at $ref." >&2
+            echo "Ensure the file exists and contains: $desired_line" >&2
+            exit 1
+          fi
+        
+          # Read entire file and normalize CRLF by removing any \r characters.
+          local content
+          content=$(git show "$path_ref" | sed $'s/\r//g')
+        
+          # Wrap content with newlines to ensure boundary matching works
+          # even if the file lacks a trailing newline.
+          local wrapped_content=$'\n'"$content"$'\n'
+        
+          if [[ "$wrapped_content" == *$'\n'"$desired_line"$'\n'* ]]; then
+            echo "OK: ${MAVEN_CONFIG_PATH} at $ref matches the intended tag (${tag})."
+          else
+            echo "ERROR: ${MAVEN_CONFIG_PATH} at $ref does not contain the expected line: $desired_line" >&2
+            echo "Observed contents (normalized for CRLF):" >&2
+            echo "$content" >&2
+            exit 1
+          fi
+        }
+        
+        # Main Execution Flow
+      
+        validate_tag "$TAG"
+        fetch_remote_ref_if_needed "$REF"
+        verify_maven_config "$REF" "$TAG"
