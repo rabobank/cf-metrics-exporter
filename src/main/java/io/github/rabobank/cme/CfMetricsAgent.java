@@ -32,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import static io.github.rabobank.cme.domain.ApplicationInfo.extractApplicationInfo;
 import static io.github.rabobank.cme.domain.AutoScalerInfo.AutoScalerAuthType.BASIC;
@@ -42,6 +43,8 @@ import static io.github.rabobank.cme.domain.MtlsInfo.INVALID_MTLS_INFO;
 public class CfMetricsAgent {
 
     public static final String CUSTOM_THROUGHPUT_METRIC_NAME = "custom_throughput";
+
+    private static final Pattern AGENT_ARGS_PATTERN = Pattern.compile("[=,]");
 
     private static final Logger log = Logger.getLogger(CfMetricsAgent.class);
     private static final Initializer NOP_INITIALIZER = () -> log.info("No special initialization required.");
@@ -151,7 +154,7 @@ public class CfMetricsAgent {
             initializer.initialize();
 
             // Create a single thread scheduler to send metrics
-            @SuppressWarnings("PMD.CloseResource") // no need to close this, see shutdown hook
+            @SuppressWarnings({"PMD.CloseResource", "java:S2095"}) // no need to close this, see shutdown hook
             ScheduledExecutorService scheduler =
                     Executors.newSingleThreadScheduledExecutor(r -> {
                         Thread thread = new Thread(r);
@@ -254,9 +257,8 @@ public class CfMetricsAgent {
         return () -> log.info("Spring instrumentation not enabled");
     }
 
-    @SuppressWarnings("PMD.AvoidImplicitlyRecompilingRegex") // is one time call only
     static String[] splitAgentArgs(String args) {
-        return args == null ? new String[]{} : args.split("[=,]");
+        return args == null ? new String[]{} : AGENT_ARGS_PATTERN.split(args);
     }
 
     public static void premain(String args, Instrumentation instrumentation){

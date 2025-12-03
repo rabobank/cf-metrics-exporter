@@ -17,11 +17,10 @@ package io.github.rabobank.cme.domain;
 
 import io.github.rabobank.cme.Logger;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-
-import static java.nio.file.Files.readAllBytes;
 
 public final class MtlsInfo {
 
@@ -68,10 +67,10 @@ public final class MtlsInfo {
         return readFile(fileName, "UTF-8");
     }
 
-    @SuppressWarnings("PMD.AvoidLoadingAllFromFile") // need all bytes anyway
+    @SuppressWarnings("PMD.AvoidLoadingAllFromFile") // need all bytes anyway, small file
     private static Optional<String> readFile(Path fileName, String encoding) {
         try {
-            return Optional.of(new String(readAllBytes(fileName), encoding));
+            return Optional.of(new String(Files.readAllBytes(fileName), encoding));
         } catch (Exception e) {
             log.error("Failed to read file: %s", e.getMessage());
             return Optional.empty();
