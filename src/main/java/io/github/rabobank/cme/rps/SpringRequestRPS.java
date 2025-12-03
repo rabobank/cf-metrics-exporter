@@ -42,40 +42,46 @@ public class SpringRequestRPS implements RequestsPerSecond {
     public static void initializeSpringInstrumentation(Instrumentation instrumentation) {
         try {
             log.debug("Initializing Spring instrumentation");
-            if (TRANSFORMER_INSTALLED.compareAndSet(false, true)) {
-                SpringRequestRpsTransformer transformer = new SpringRequestRpsTransformer();
-                instrumentation.addTransformer(transformer, true);
-                log.debug("Spring transformer registered (canRetransform=true)");
-            } else {
-                log.debug("Spring transformer already registered, skipping duplicate registration");
-            }
-
-            // Attempt to retransform already loaded target classes so that
-            // the instrumentation also applies when Spring was loaded before the agent.
-            if (instrumentation.isRetransformClassesSupported()) {
-                if (RETRANSFORM_EXECUTED.compareAndSet(false, true)) {
-                    for (Class<?> loaded : instrumentation.getAllLoadedClasses()) {
-                        String name = loaded.getName();
-                        if (isTargetClass(name) && instrumentation.isModifiableClass(loaded)) {
-                            try {
-                                log.info("Retransforming already loaded class '%s'", name);
-                                instrumentation.retransformClasses(loaded);
-                            } catch (Exception ex) {
-                                log.error("Failed to retransform class %s: %s", name, ex);
-                            }
-                        }
-                    }
-                } else {
-                    log.debug("Retransformation pass already executed once, skipping to avoid double instrumentation");
-                }
-            } else {
-                log.info("Retransform classes not supported by current JVM/instrumentation.");
-            }
-
+            registerTransformer(instrumentation);
+            attemptRetransformation(instrumentation);
             log.info("Spring instrumentation initialized");
         } catch (Exception e) {
             log.error("Spring instrumentation failed: %s", e);
             // Do not throw, continue running
+        }
+    }
+
+    private static void registerTransformer(Instrumentation instrumentation) {
+        if (!TRANSFORMER_INSTALLED.compareAndSet(false, true)) {
+            log.debug("Spring transformer already registered, skipping duplicate registration");
+            return;
+        }
+        SpringRequestRpsTransformer transformer = new SpringRequestRpsTransformer();
+        instrumentation.addTransformer(transformer, true);
+        log.debug("Spring transformer registered (canRetransform=true)");
+    }
+
+    private static void attemptRetransformation(Instrumentation instrumentation) {
+        // Retransform already loaded target classes so that instrumentation also applies
+        if (!instrumentation.isRetransformClassesSupported()) {
+            log.info("Retransform classes not supported by current JVM/instrumentation.");
+            return;
+        }
+        if (!RETRANSFORM_EXECUTED.compareAndSet(false, true)) {
+            log.debug("Retransformation pass already executed once, skipping to avoid double instrumentation");
+            return;
+        }
+        for (Class<?> loaded : instrumentation.getAllLoadedClasses()) {
+            String name = loaded.getName();
+            if (!isTargetClass(name) || !instrumentation.isModifiableClass(loaded)) {
+                continue;
+            }
+            try {
+                log.info("Retransforming already loaded class '%s'", name);
+                instrumentation.retransformClasses(loaded);
+            } catch (Exception ex) {
+                log.error("Failed to retransform class %s: %s", name, ex);
+            }
         }
     }
 
@@ -125,38 +131,33 @@ public class SpringRequestRPS implements RequestsPerSecond {
         public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                                 ProtectionDomain domain, byte[] classfileBuffer) {
 
-            if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)
-                    || REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
-                log.debug("Starting transformation of class %s", className);
-
-                if (log.isDebugEnabled()) {
-                    // Log classloader and protection domain details for diagnostics
-                    String clName = (loader == null) ? "<bootstrap>" : loader.getClass().getName();
-                    String clStr = (loader == null) ? "<bootstrap>" : loader.toString();
-                    ClassLoader parent = (loader == null) ? null : loader.getParent();
-                    URL codeSource = null;
-                    if (domain != null && domain.getCodeSource() != null) {
-                        codeSource = domain.getCodeSource().getLocation();
-                    }
-                    log.debug("Transform request: class='%s', loader='%s' (%s), parentLoader='%s', codeSource='%s', retransform=%s",
-                            className, clName, clStr, (parent == null ? "<none>" : parent.getClass().getName()),
-                            String.valueOf(codeSource), String.valueOf(classBeingRedefined != null));
-                }
-
-                if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)) {
-                    // Only instrument doService as requested
-                    String method = "doService";
-                    log.info("Transforming class '%s' method '%s'", className, method);
-                    return transformClass(className, classfileBuffer, method);
-                }
-
-                if (REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
-                    String methodName = "handle";
-                    log.info("Transforming class '%s' method '%s'", className, methodName);
-                    return transformClass(className, classfileBuffer, methodName);
-                }
+            if (!DISPATCHER_SERVLET_CLASS_PATH.equals(className)
+                    && !REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
+                return null;
             }
-            return null;
+
+            if (log.isDebugEnabled()) {
+                log.debug("Starting transformation of class %s", className);
+                logTransformDetails(loader, className, classBeingRedefined, domain);
+            }
+
+            // this code works only with two expected classes, as seen in the 'if' check above
+            String methodName = DISPATCHER_SERVLET_CLASS_PATH.equals(className) ? "doDispatch" : "handle";
+
+            log.info("Transforming class '%s' method '%s'", className, methodName);
+            return transformClass(className, classfileBuffer, methodName);
+        }
+
+        private void logTransformDetails(ClassLoader loader, String className, Class<?> classBeingRedefined,
+                                         ProtectionDomain domain) {
+            String clName = (loader == null) ? "<bootstrap>" : loader.getClass().getName();
+            String clStr = (loader == null) ? "<bootstrap>" : loader.toString();
+            ClassLoader parent = (loader == null) ? null : loader.getParent();
+            URL codeSource = (domain != null && domain.getCodeSource() != null)
+                    ? domain.getCodeSource().getLocation() : null;
+            log.debug("Transform request: class='%s', loader='%s' (%s), parentLoader='%s', codeSource='%s', retransform=%s",
+                    className, clName, clStr, (parent == null ? "<none>" : parent.getClass().getName()),
+                    String.valueOf(codeSource), String.valueOf(classBeingRedefined != null));
         }
 
         private byte[] transformClass(String internalClassName, byte[] classfileBuffer, String methodName) {
