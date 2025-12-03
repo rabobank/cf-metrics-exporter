@@ -23,6 +23,8 @@ import io.github.rabobank.cme.domain.MtlsInfo;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestInstance.Lifecycle;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -37,13 +39,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Starts WireMock with mutual TLS and verifies the agent sender posts metrics over mTLS.
  */
+@TestInstance(Lifecycle.PER_CLASS)
 class CustomMetricsSenderMtlsTest {
 
-    private static WireMockServer autoscalerWireMock;
-    private static WireMockServer otlpWireMock;
+    private WireMockServer autoscalerWireMock;
+    private WireMockServer otlpWireMock;
 
     @BeforeAll
-    static void setUpAll() {
+    void setUpAll() {
         // Ensure test certificates are present (generated during Maven compile phase)
         Path base = Path.of("target", "generated-certs");
         Path clientKey = base.resolve("client-key.pem");
@@ -64,7 +67,7 @@ class CustomMetricsSenderMtlsTest {
     }
 
     @AfterAll
-    static void tearDownAll() {
+    void tearDownAll() {
         if (autoscalerWireMock != null) {
             autoscalerWireMock.stop();
         }
@@ -78,8 +81,8 @@ class CustomMetricsSenderMtlsTest {
 
         // Build MtlsInfo from generated PEM files
         Path base = Path.of("target", "generated-certs");
-       // Ensure we test the PKCS#1 code path explicitly by generating a PKCS#1 RSA private key PEM
-       Path clientKey = base.resolve("client-key-pkcs1.pem");
+        // Ensure we test the PKCS#1 code path explicitly by generating a PKCS#1 RSA private key PEM
+        Path clientKey = base.resolve("client-key-pkcs1.pem");
         Path clientPem = base.resolve("client.pem");
         Path cacertsDir = base.resolve("cacerts");
 
