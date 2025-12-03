@@ -32,76 +32,66 @@ public class Arguments {
     private boolean enableLogEmitter = false;
     private boolean disableAgent = false;
 
-    public static String usage() {
-        return "Usage: java CfMetricsExporter " +
-                "--debug,-d --trace --metricsEndpoint,-m <metricsEndpoint>,--intervalSeconds,-i <intervalSeconds>,--rpsType,-r <tomcat-mbean|spring-request|random>,--environmentVarName,-e <ENV_VAR_NAME>,--enableLogEmitter,--disableAgent";
-    }
-
     public static void print(String message) {
-        System.out.println(message);
+        System.err.println(message);
     }
 
-    public static Arguments parseArgs(String[] args) {
-
+    public static Arguments parseArgs(String... args) {
         Queue<String> options = new ArrayDeque<>(Arrays.asList(args));
-
         Arguments arguments = new Arguments();
 
         while (!options.isEmpty()) {
             String arg = options.remove();
 
-            if (matches(arg, "-h", "--help", "help")) {
-                print(Arguments.usage());
-                System.exit(1);
-            }
-
-            if (matches(arg, "-d", "--debug", "debug")) {
-                arguments.debug = true;
-                continue;
-            }
-
-            if (matches(arg, "--trace", "trace")) {
-                arguments.trace = true;
-                continue;
-            }
-
-            if (matches(arg, "-m", "--metricsEndpoint", "metricsEndpoint")) {
-                arguments.metricsEndpoint = options.remove();
-                continue;
-            }
-
-            if (matches(arg, "-i", "--intervalSeconds", "intervalSeconds")) {
-                String seconds = options.remove();
-                arguments.intervalSeconds = Integer.parseInt(seconds);
-                continue;
-            }
-
-            if (matches(arg, "-r", "--rpsType", "rpsType")) {
-                String type = options.remove();
-                arguments.rpsType = RequestsPerSecondType.valueOf(type.replace('-', '_').toUpperCase());
-                continue;
-            }
-
-            if (matches(arg, "-e", "--environmentVarName", "environmentVarName")) {
-                arguments.environmentVarName = options.remove();
-                continue;
-            }
-
-            if (matches(arg, "--enableLogEmitter", "enableLogEmitter")) {
-                arguments.enableLogEmitter = true;
-                continue;
-            }
-
-            if (matches(arg, "--disableAgent", "disableAgent")) {
-                arguments.disableAgent = true;
-                continue;
-            }
+            if (handleFlagOption(arg, arguments)) continue;
+            if (handleValueOption(arg, options, arguments)) continue;
 
             print("WARN: unknown option: " + arg);
-
         }
 
         return arguments;
+    }
+
+    private static boolean handleFlagOption(String arg, Arguments arguments) {
+        if (matches(arg, "-d", "--debug", "debug")) {
+            arguments.debug = true;
+            return true;
+        }
+        if (matches(arg, "--trace", "trace")) {
+            arguments.trace = true;
+            return true;
+        }
+        if (matches(arg, "--enableLogEmitter", "enableLogEmitter")) {
+            arguments.enableLogEmitter = true;
+            return true;
+        }
+        if (matches(arg, "--disableAgent", "disableAgent")) {
+            arguments.disableAgent = true;
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean handleValueOption(String arg, Queue<String> options, Arguments arguments) {
+        if (matches(arg, "-m", "--metricsEndpoint", "metricsEndpoint")) {
+            arguments.metricsEndpoint = options.remove();
+            return true;
+        }
+        if (matches(arg, "-i", "--intervalSeconds", "intervalSeconds")) {
+            String seconds = options.remove();
+            arguments.intervalSeconds = Integer.parseInt(seconds);
+            return true;
+        }
+        if (matches(arg, "-r", "--rpsType", "rpsType")) {
+            String type = options.remove();
+            arguments.rpsType = RequestsPerSecondType.valueOf(type.replace('-', '_').toUpperCase());
+            return true;
+        }
+        if (matches(arg, "-e", "--environmentVarName", "environmentVarName")) {
+            arguments.environmentVarName = options.remove();
+            return true;
+        }
+        return false;
     }
 
     private static boolean matches(String arg, String... matchers) {
