@@ -17,7 +17,7 @@ package io.github.rabobank.cme;
 
 public class CfMetricsAgentException extends Exception {
 
-    private static final long serialVersionUID = 34256216L;
+    private static final long serialVersionUID = 1L;
 
     public CfMetricsAgentException(String message) {
         super(message);

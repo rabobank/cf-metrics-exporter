@@ -50,7 +50,7 @@ public final class CertAndKeyProcessing {
 
     private static final Logger log = Logger.getLogger(CertAndKeyProcessing.class);
 
-    private static final Pattern LINEBREAKS = Pattern.compile("\\s|\\r|\\n");
+    private static final Pattern WHITESPACE_INCL_LINEBREAKS = Pattern.compile("\\s");
 
     private CertAndKeyProcessing() {
         // do not create instances
@@ -150,7 +150,7 @@ public final class CertAndKeyProcessing {
                 .replace("-----END PRIVATE KEY-----", "")
                 .replace("-----BEGIN RSA PRIVATE KEY-----", "")
                 .replace("-----END RSA PRIVATE KEY-----", "");
-        return LINEBREAKS.matcher(pemWithoutHeaders).replaceAll("");
+        return WHITESPACE_INCL_LINEBREAKS.matcher(pemWithoutHeaders).replaceAll("");
     }
 
     private static PrivateKey loadPrivateKeyFromPem(String pemKey) throws CfMetricsAgentException {
@@ -226,7 +226,7 @@ public final class CertAndKeyProcessing {
         private final byte[] data;
         private int pos;
 
-        DerReader(byte[] data) { this.data = data; this.pos = 0; }
+        DerReader(byte[] data) { this.data = data.clone(); this.pos = 0; }
 
         DerReader readSequence() throws IOException {
             int tag = readByte();

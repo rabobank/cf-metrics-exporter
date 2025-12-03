@@ -32,6 +32,7 @@ public class SpringRequestRPS implements RequestsPerSecond {
 
     private static final AtomicInteger REQUEST_COUNTER = new AtomicInteger(0);
     private static final AtomicLong LAST_RESET_TIME = new AtomicLong(System.currentTimeMillis());
+    @SuppressWarnings("PMD.AvoidUsingVolatile") // volatile is needed for cross-thread visibility of currentRps
     private static volatile int currentRps = 0;
     // Ensure we don't register the transformer more than once across tests/JVM lifecycle
     private static final AtomicBoolean TRANSFORMER_INSTALLED = new AtomicBoolean(false);
@@ -120,9 +121,9 @@ public class SpringRequestRPS implements RequestsPerSecond {
         public static final String REACTIVE_DISPATCHER_HANDLER_PATH = "org/springframework/web/reactive/DispatcherHandler";
 
         @Override
+        @SuppressWarnings("PMD.ReturnEmptyCollectionRatherThanNull") // null means: did not transform class, see javadoc
         public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                                 ProtectionDomain domain, byte[] classfileBuffer) {
-
 
             if (DISPATCHER_SERVLET_CLASS_PATH.equals(className)
                     || REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
@@ -146,19 +147,19 @@ public class SpringRequestRPS implements RequestsPerSecond {
                     // Only instrument doService as requested
                     String method = "doService";
                     log.info("Transforming class '%s' method '%s'", className, method);
-                    return transformClass(className, classfileBuffer, method, loader);
+                    return transformClass(className, classfileBuffer, method);
                 }
 
                 if (REACTIVE_DISPATCHER_HANDLER_PATH.equals(className)) {
                     String methodName = "handle";
                     log.info("Transforming class '%s' method '%s'", className, methodName);
-                    return transformClass(className, classfileBuffer, methodName, loader);
+                    return transformClass(className, classfileBuffer, methodName);
                 }
             }
             return null;
         }
 
-        private byte[] transformClass(String internalClassName, byte[] classfileBuffer, String methodName, ClassLoader loader) {
+        private byte[] transformClass(String internalClassName, byte[] classfileBuffer, String methodName) {
             log.debug("Starting transformation of class %s for method %s", internalClassName, methodName);
             ClassReader classReader = new ClassReader(classfileBuffer);
             // Use COMPUTE_MAXS to avoid ClassWriter frame recomputation that may require
