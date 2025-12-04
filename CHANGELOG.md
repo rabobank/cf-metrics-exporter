@@ -1,6 +1,6 @@
 # Change log cf-metrics-exporter
 
-### v0.7.1: December 2025
+### 0.7.1: December 2025
 * Code improvements and code scan fixes
 * Removed help option from arguments
 

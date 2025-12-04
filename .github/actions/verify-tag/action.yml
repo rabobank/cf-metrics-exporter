@@ -11,7 +11,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Verify .mvn/maven.config revision matches tag at ref
+    - name: Verify .mvn/maven.config revision matches tag at ref and CHANGELOG contains version
       shell: bash
       env:
         TAG: ${{ inputs.tag }}
@@ -21,6 +21,7 @@ runs:
         
         # Constants
         MAVEN_CONFIG_PATH=".mvn/maven.config"
+        CHANGELOG_PATH="CHANGELOG.md"
         REMOTE_PREFIX="origin/"
         
         validate_tag() {
@@ -73,9 +74,35 @@ runs:
             exit 1
           fi
         }
+
+        verify_changelog_contains_version() {
+          local ref="$1"
+          local tag="$2"   # tag without leading 'v'
+          local expected_heading_regex="^### ${tag}:[[:space:]]*"
+          local path_ref="${ref}:${CHANGELOG_PATH}"
+
+          if ! git cat-file -e "$path_ref" 2>/dev/null; then
+            echo "ERROR: ${CHANGELOG_PATH} not found at $ref." >&2
+            echo "Ensure the changelog includes a section like: '### ${tag}: <Month> <Year>'" >&2
+            exit 1
+          fi
+
+          # Normalize CRLF and search for heading
+          local changelog
+          changelog=$(git show "$path_ref" | sed $'s/\r//g')
+
+          if echo "$changelog" | grep -E -q "$expected_heading_regex"; then
+            echo "OK: ${CHANGELOG_PATH} at $ref contains a section for ${tag}."
+          else
+            echo "ERROR: ${CHANGELOG_PATH} at $ref does not contain a release section heading for ${tag}." >&2
+            echo "Looked for regex: $expected_heading_regex" >&2
+            exit 1
+          fi
+        }
         
         # Main Execution Flow
       
         validate_tag "$TAG"
         fetch_remote_ref_if_needed "$REF"
         verify_maven_config "$REF" "$TAG"
+        verify_changelog_contains_version "$REF" "$TAG"
