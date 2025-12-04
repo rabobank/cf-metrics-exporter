@@ -1,5 +1,9 @@
 # Change log cf-metrics-exporter
 
+### v0.7.1: December 2025
+* Code improvements and code scan fixes
+* Removed help option from arguments
+
 ### v0.7.0: November 2025
 * added PKCS#1 DER parser (parsePkcs1PrivateKey and DerReader in CertAndKeyProcessing) based 
 on RFC 3447 and DER (X.690)
