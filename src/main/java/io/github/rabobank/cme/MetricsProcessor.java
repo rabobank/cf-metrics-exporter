@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Peter Paul Bakker - Rabobank
+ * Copyright (C) 2026 Peter Paul Bakker - Rabobank
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,18 +23,18 @@ public class MetricsProcessor {
 
     private static final Logger log = Logger.getLogger(MetricsProcessor.class);
 
-    private final RequestsPerSecond rsp;
+    private final RequestsPerSecond rps;
     private final List<MetricEmitter> metricEmitters;
 
     public MetricsProcessor(RequestsPerSecond requestsPerSecond, List<MetricEmitter> metricEmitters) {
-        this.rsp = requestsPerSecond;
+        this.rps = requestsPerSecond;
         this.metricEmitters = List.copyOf(metricEmitters);
     }
 
     public void tick() {
 
         try {
-            int currentRps = rsp.rps();
+            int currentRps = rps.rps();
 
             if (currentRps < 0) {
                 log.debug("RPS not available, skip send.");

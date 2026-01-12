@@ -7,7 +7,7 @@ This also counts the container-to-container traffic and can be used for autoscal
 The purpose of this agent:
 * parse autoscaler endpoint info from VCAP_SERVICES
 * collect RPS (Requests Per Second) from the application
-* send RPS to cloud foundry custom metrics endpoint 
+* send RPS to Cloud Foundry custom metrics endpoint 
 
 Sends custom metric with name `custom_throughput` and unit: `rps`.
 (Cloud Foundry auto scaler has a `throughput` metric.)
@@ -29,7 +29,7 @@ Works for all Spring Boot servers:
 * Tomcat (also with virtual threads)
 * Undertow
 
-Use `rspType=spring-request` to enable this feature (default).
+Use `rpsType=spring-request` to enable this feature (default).
 
 ### Tomcat RPS
 
@@ -39,13 +39,13 @@ For Tomcat use the JMX MBean and Attribute:
 
 Needs explicit application setting: `server.tomcat.mbeanregistry.enabled=true`
 
-Use `rspType=tomcat-mbean` to enable this feature.
+Use `rpsType=tomcat-mbean` to enable this feature.
 
 ### Random RPS
 
 This is a random RPS generator, useful for testing purposes. It generates a random number of requests per second.
 
-Use `rspType=random` to enable this feature.
+Use `rpsType=random` to enable this feature.
 
 ## Metric Emitters
 
@@ -102,7 +102,7 @@ Use via `source src/test/resources/test.env` in your terminal or add as env file
 # Open Telemetry
 
 The agent will send the RPS metric to an Open Telemetry endpoint if the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable is set.
-It only supports the http protocol and no authentication as of yet. The metric name is `custom_throughput`. The unit is `1/s`.
+It currently only supports the http protocol and no authentication. The metric name is `custom_throughput`. The unit is `1/s`.
 The attributes are:    
 - `cf_application_name`
 - `cf_space_name`
@@ -116,7 +116,7 @@ The attributes are:
 
 To build the project, use the following command:
 
-```bash
+```shell
 ./mvnw clean package
 ```
 
@@ -124,17 +124,15 @@ The agent jar will be created in the `target` directory: `target/cf-metrics-expo
 
 ## Test metrics endpoint
 
-A Wiremock server is included to test the agent. It can be used with basic-auth (port 58080) and mTLS (port 58443).
+A WireMock server is included to test the agent. It can be used with basic-auth (port 58080) and mTLS (port 58443).
 
 The certificates for mTLS are generated with the `mtls-certs/mtls-certificate-setup.sh` script.
 This script is executed in the compile step of the Maven build.
 The certs are in `target/generated-certs`.
 
 Beware: PKCS#1 and PKCS#8 PEM formats are both encountered in practice. This project implements
-an minimal pure‑Java parser for unencrypted PKCS#1 ("BEGIN RSA PRIVATE KEY") keys and uses standard
-JCA APIs for PKCS#8 ("BEGIN PRIVATE KEY") keys. No external crypto providers are required.
+a minimal pure‑Java parser for unencrypted PKCS#1 (those that start with "BEGIN RSA PRIVATE KEY") keys
+and uses standard JCA APIs for PKCS#8 ("BEGIN PRIVATE KEY") keys. No external crypto providers are required.
 
-# Notes
 
-This is a "Beta" release, feedback is welcome!
 

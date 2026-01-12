@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Peter Paul Bakker - Rabobank
+ * Copyright (C) 2026 Peter Paul Bakker - Rabobank
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Implementation of RequestsPerSecond that retrieves the request count from a Tomcat MBean.
  * It calculates the requests per second based on the difference in request count over time.
- *
+ * <p>
  * In Spring Boot application configuration add `server.tomcat.mbeanregistry.enabled=true` to enable the MBean registry.
  */
 public class TomcatMBeanRPS implements RequestsPerSecond {
