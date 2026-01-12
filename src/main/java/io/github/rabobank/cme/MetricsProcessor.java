@@ -23,18 +23,18 @@ public class MetricsProcessor {
 
     private static final Logger log = Logger.getLogger(MetricsProcessor.class);
 
-    private final RequestsPerSecond rsp;
+    private final RequestsPerSecond rps;
     private final List<MetricEmitter> metricEmitters;
 
     public MetricsProcessor(RequestsPerSecond requestsPerSecond, List<MetricEmitter> metricEmitters) {
-        this.rsp = requestsPerSecond;
+        this.rps = requestsPerSecond;
         this.metricEmitters = List.copyOf(metricEmitters);
     }
 
     public void tick() {
 
         try {
-            int currentRps = rsp.rps();
+            int currentRps = rps.rps();
 
             if (currentRps < 0) {
                 log.debug("RPS not available, skip send.");
